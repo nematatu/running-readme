@@ -11,7 +11,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parent.parent
 QUERY = 'com.sindresorhus.Actions.WorkoutAppEntity'
 KEYCHAIN = 'com.sindresorhus.Actions.KeychainGetIntent'
-PROPERTIES = {'workoutType', 'startDate', 'duration', 'totalDistance'}
+PROPERTIES = {'workoutType', 'startDate', 'duration', 'totalDistance', 'averageSpeed'}
 
 
 def nodes(value):
@@ -123,6 +123,12 @@ def verify(workflow, reference):
             assert node['PropertyUserInfo'] == properties[name]
             seen.add(name)
     assert seen == PROPERTIES
+    speed = only([item for item in parameters(workflow, 'is.workflow.actions.detect.text')
+                  if any(node.get('PropertyName') == 'averageSpeed' for node in nodes(item.get('WFInput')))])
+    block = only([item for item in parameters(workflow, 'is.workflow.actions.gettext')
+                  if 'Workout Type: Running' in item['WFTextActionText']['Value']['string']])
+    assert '\nAvg Speed: \ufffc' in block['WFTextActionText']['Value']['string']
+    assert speed['UUID'] in references(block)
     starts = [item for item in parameters(workflow, 'is.workflow.actions.conditional') if item.get('WFControlFlowMode') == 0]
     assert len(starts) == 5 and len({item['GroupingIdentifier'] for item in starts}) == 5
     running = only([item for item in starts if 'WFConditions' in item])

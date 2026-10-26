@@ -27,7 +27,8 @@ const blocks = for workout in workouts {
         const start = formatDate(@workout['startDate'], "Custom", "yyyy/MM/dd HH:mm:ss")
         const duration = getText(@workout['duration'])
         const distance = getText(@workout['totalDistance'])
-        text("Workout Type: Running\nDate: {start}\nDuration: {duration}\nDistance: {distance}")
+        const speed = getText(@workout['averageSpeed'])
+        text("Workout Type: Running\nDate: {start}\nDuration: {duration}\nDistance: {distance}\nAvg Speed: {speed}")
     } else {
         nothing()
     }

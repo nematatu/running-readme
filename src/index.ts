@@ -144,7 +144,11 @@ app.get('/v1/workouts', async (c) => {
   if (stored === null) return c.json(errorBody('STATS_NOT_FOUND', 'No statistics registered for this year.'), 404);
   const stats = storedStats.parse(stored);
   if (stats.year !== year) throw new Error('Stored year mismatch');
-  return c.json({ year, workouts: stats.recentWorkouts?.map(({ date, distanceMeters, durationSeconds }) => ({ date, distanceKm: distanceMeters / 1000, durationSeconds })) ?? null });
+  return c.json({
+    year,
+    recentTotalDistanceKm: stats.recentWorkouts ? stats.recentWorkouts.reduce((sum, workout) => sum + workout.distanceMeters, 0) / 1000 : null,
+    workouts: stats.recentWorkouts?.map(({ date, distanceMeters, durationSeconds, averageSpeedKmh }) => ({ date, distanceKm: distanceMeters / 1000, durationSeconds, averageSpeedKmh })) ?? null,
+  });
 });
 
 app.get('/running.svg', async (c) => {

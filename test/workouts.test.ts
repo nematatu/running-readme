@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import app from '../src/index';
-import { aggregateWorkoutText } from '../src/workouts';
+import { aggregateWorkoutText, recentWorkout } from '../src/workouts';
 
 const token = 'test-only-token-not-a-production-secret-12345';
 const year = 2026;
@@ -19,43 +19,87 @@ beforeEach(async () => {
 afterEach(() => vi.useRealTimers());
 
 describe('workout memo upload', () => {
-  it('sums complete input on the server, ignores other years and stores only aggregate fields', async () => {
+  it('sums complete input on the server, ignores other years and stores minimal recent fields', async () => {
     const text = `${block()}\nEnd date: ${year}/01/15 07:45\nHeart rate: 160 bpm\nActive calories: 200\nAvg Speed: 10 km/h\n\n${block(`${year}/01/16 07:30`, '1.5 km', '10 min')}\n\n${block(`${year - 1}/01/15 07:30`)}`;
     const response = await upload({ workoutsText: text });
     expect(response.status).toBe(200);
     const expectedRecent = [
-      { date: `${year}-01-16`, distanceMeters: 1500, durationSeconds: 600 },
-      { date: `${year}-01-15`, distanceMeters: 2500, durationSeconds: 900 },
+      { date: `${year}-01-16`, distanceMeters: 1500, durationSeconds: 600, averageSpeedKmh: null },
+      { date: `${year}-01-15`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh: 10 },
     ];
     expect(await response.json()).toEqual({ ok: true, year, distanceMeters: 4000, durationSeconds: 1500, workoutCount: 2, recentWorkouts: expectedRecent });
     expect((await env.RUNNING_STATS.list()).keys.map((key) => key.name)).toEqual([`running:year:${year}`]);
     expect(await env.RUNNING_STATS.get(`running:year:${year}`, 'json')).toEqual({ year, distanceMeters: 4000, durationSeconds: 1500, recentWorkouts: expectedRecent });
     const raw = await env.RUNNING_STATS.get(`running:year:${year}`);
-    expect(raw).not.toMatch(/Heart|calories|Speed|07:30|Identifier/);
+    expect(raw).not.toMatch(/Heart|calories|Avg Speed|07:30|Identifier/);
     expect(await (await app.request('https://example.test/v1/stats', undefined, env)).json()).toEqual({ year, distanceKm: 4, durationSeconds: 1500 });
   });
   it('replaces a snapshot without adding on resend, supports explicit archive year', async () => {
     await upload({ workoutsText: block() });
     await upload({ workoutsText: block() });
-    expect(await env.RUNNING_STATS.get(`running:year:${year}`, 'json')).toEqual({ year, distanceMeters: 2500, durationSeconds: 900, recentWorkouts: [{ date: `${year}-01-15`, distanceMeters: 2500, durationSeconds: 900 }] });
+    expect(await env.RUNNING_STATS.get(`running:year:${year}`, 'json')).toEqual({ year, distanceMeters: 2500, durationSeconds: 900, recentWorkouts: [{ date: `${year}-01-15`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh: null }] });
     const response = await upload({ year: 2024, workoutsText: block('2024/02/29 08:01:02', '1,001.5 m', '1.5 h') });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, year: 2024, distanceMeters: 1001.5, durationSeconds: 5400, workoutCount: 1, recentWorkouts: [{ date: '2024-02-29', distanceMeters: 1001.5, durationSeconds: 5400 }] });
+    expect(await response.json()).toEqual({ ok: true, year: 2024, distanceMeters: 1001.5, durationSeconds: 5400, workoutCount: 1, recentWorkouts: [{ date: '2024-02-29', distanceMeters: 1001.5, durationSeconds: 5400, averageSpeedKmh: null }] });
   });
   it('accepts CRLF, nonbreaking unit spaces, optional IDs, and registered zero metrics', async () => {
     const response = await upload({ workoutsText: `${block(undefined, '0\u00a0m', '0\u202fs')}\nIdentifier: local-example-id`.replaceAll('\n', '\r\n') });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, year, distanceMeters: 0, durationSeconds: 0, workoutCount: 1, recentWorkouts: [{ date: `${year}-01-15`, distanceMeters: 0, durationSeconds: 0 }] });
+    expect(await response.json()).toEqual({ ok: true, year, distanceMeters: 0, durationSeconds: 0, workoutCount: 1, recentWorkouts: [{ date: `${year}-01-15`, distanceMeters: 0, durationSeconds: 0, averageSpeedKmh: null }] });
   });
   it('uses Tokyo local year boundaries', () => {
     expect(aggregateWorkoutText(`${block('2025/12/31 23:59')}\n\n${block('2026/01/01 00:00')}`, 2026, new Date('2026-02-01T00:00:00Z')).workoutCount).toBe(1);
+  });
+  it.each([
+    ['13.506 km/h', 13.506], ['0 km/h', 0], ['3.5 m/s', 12.6], ['10 mph', 16.09344], ['10 mi/h', 16.09344], ['', null],
+  ])('stores the supplied native speed %s without inferring it from distance and duration', async (speed, averageSpeedKmh) => {
+    const response = await upload({ workoutsText: `${block()}\nAvg Speed: ${speed}` });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toHaveProperty('recentWorkouts', [{ date: `${year}-01-15`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh }]);
+    expect(await env.RUNNING_STATS.get(`running:year:${year}`, 'json')).toHaveProperty('recentWorkouts', [{ date: `${year}-01-15`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh }]);
+    expect(await (await app.request('https://example.test/v1/workouts', undefined, env)).json()).toEqual({ year, recentTotalDistanceKm: 2.5,
+      workouts: [{ date: `${year}-01-15`, distanceKm: 2.5, durationSeconds: 900, averageSpeedKmh }] });
+  });
+  it.each(['-1 km/h', 'NaN km/h', 'Infinity km/h', '1e999 km/h', '1000.000001 km/h', '2 knots', '13.506', '1,00 km/h'])('rejects invalid supplied speed %s before overwriting data', async (speed) => {
+    await upload({ workoutsText: block() });
+    const before = await env.RUNNING_STATS.get(`running:year:${year}`);
+    const response = await upload({ workoutsText: `${block()}\nAvg Speed: ${speed}` });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toHaveProperty('error.code', 'INVALID_WORKOUT_TEXT');
+    expect(await env.RUNNING_STATS.get(`running:year:${year}`)).toBe(before);
+  });
+  it('uses the first duplicate occurrence speed and excludes older records from the recent distance sum', async () => {
+    const records = Array.from({ length: 6 }, (_, index) => `${block(`${year}/01/${String(index + 1).padStart(2, '0')} 07:30`, `${index + 1} km`)}\nAvg Speed: 13.506 km/h`);
+    const response = await upload({ workoutsText: [...records, `${records[5].replace('13.506', '10')}`].join('\n\n') });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ workoutCount: 6, distanceMeters: 21000 });
+    const published = await (await app.request('https://example.test/v1/workouts', undefined, env)).json();
+    expect(published).toMatchObject({ recentTotalDistanceKm: 20 });
+    expect(published).toHaveProperty('workouts', [6, 5, 4, 3, 2].map((day) => ({ date: `${year}-01-${String(day).padStart(2, '0')}`, distanceKm: day, durationSeconds: 900, averageSpeedKmh: 13.506 })));
+  });
+  it('reads old rows with unknown speed without rewriting KV and distinguishes empty recent rows', async () => {
+    const original = JSON.stringify({ year, distanceMeters: 2500, durationSeconds: 900, recentWorkouts: [{ date: `${year}-01-15`, distanceMeters: 2500, durationSeconds: 900 }] });
+    await env.RUNNING_STATS.put(`running:year:${year}`, original);
+    expect(await (await app.request('https://example.test/v1/workouts', undefined, env)).json()).toEqual({ year, recentTotalDistanceKm: 2.5,
+      workouts: [{ date: `${year}-01-15`, distanceKm: 2.5, durationSeconds: 900, averageSpeedKmh: null }] });
+    expect(await env.RUNNING_STATS.get(`running:year:${year}`)).toBe(original);
+    await env.RUNNING_STATS.put(`running:year:${year}`, JSON.stringify({ year, distanceMeters: 0, durationSeconds: 0, recentWorkouts: [] }));
+    expect(await (await app.request('https://example.test/v1/workouts', undefined, env)).json()).toEqual({ year, recentTotalDistanceKm: 0, workouts: [] });
+  });
+  it.each([-1, 1000.000001, '13.506', null])('validates stored speed %s', async (averageSpeedKmh) => {
+    await env.RUNNING_STATS.put(`running:year:${year}`, JSON.stringify({ year, distanceMeters: 2500, durationSeconds: 900,
+      recentWorkouts: [{ date: `${year}-01-15`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh }] }));
+    expect((await app.request('https://example.test/v1/workouts', undefined, env)).status).toBe(averageSpeedKmh === null ? 200 : 503);
+  });
+  it.each([NaN, Infinity, -Infinity])('rejects non-finite speed schema values %s', (averageSpeedKmh) => {
+    expect(recentWorkout.safeParse({ date: `${year}-01-15`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh }).success).toBe(false);
   });
   it('rejects missing target-year records without clearing prior totals', async () => {
     await upload({ workoutsText: block() });
     const response = await upload({ workoutsText: block(`${year - 1}/01/15 07:30`) });
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: { code: 'NO_RUNNING_DATA', message: 'No running records for the selected year. Existing statistics were not changed.' } });
-    expect(await env.RUNNING_STATS.get(`running:year:${year}`, 'json')).toEqual({ year, distanceMeters: 2500, durationSeconds: 900, recentWorkouts: [{ date: `${year}-01-15`, distanceMeters: 2500, durationSeconds: 900 }] });
+    expect(await env.RUNNING_STATS.get(`running:year:${year}`, 'json')).toEqual({ year, distanceMeters: 2500, durationSeconds: 900, recentWorkouts: [{ date: `${year}-01-15`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh: null }] });
   });
   it.each([
     {}, { workoutsText: '' }, { workoutsText: [] }, { workoutsText: block(), extra: true },
@@ -81,17 +125,17 @@ describe('workout memo upload', () => {
     expect((await env.RUNNING_STATS.list()).keys).toHaveLength(0);
   });
   it.each([
-    { text: `${block()}\n\n${block()}`, distanceMeters: 2500, durationSeconds: 900 },
-    { text: `${block()}\nIdentifier: same-id\n\n${block()}\nIdentifier: same-id`, distanceMeters: 2500, durationSeconds: 900 },
-    { text: `${block()}\nIdentifier: first-id\n\n${block()}\nIdentifier: second-id`, distanceMeters: 2500, durationSeconds: 900 },
+    { text: `${block()}\n\n${block()}`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh: null },
+    { text: `${block()}\nIdentifier: same-id\n\n${block()}\nIdentifier: same-id`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh: null },
+    { text: `${block()}\nIdentifier: first-id\n\n${block()}\nIdentifier: second-id`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh: null },
     { text: `${block(undefined, '1.001 km', '1.5 min')}\n\n${block(undefined, '1,001 m', '90 s')}`, distanceMeters: 1001, durationSeconds: 90 },
   ])('counts identical records once, including equivalent units ($distanceMeters m)', async ({ text, distanceMeters, durationSeconds }) => {
     const response = await upload({ workoutsText: text });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, year, distanceMeters, durationSeconds, workoutCount: 1,
-      recentWorkouts: [{ date: `${year}-01-15`, distanceMeters, durationSeconds }] });
+      recentWorkouts: [{ date: `${year}-01-15`, distanceMeters, durationSeconds, averageSpeedKmh: null }] });
     expect(await env.RUNNING_STATS.get(`running:year:${year}`, 'json')).toEqual({ year, distanceMeters, durationSeconds,
-      recentWorkouts: [{ date: `${year}-01-15`, distanceMeters, durationSeconds }] });
+      recentWorkouts: [{ date: `${year}-01-15`, distanceMeters, durationSeconds, averageSpeedKmh: null }] });
   });
   it.each([
     `${block()}\nIdentifier: same-id\n\n${block(`${year}/01/16 07:30`)}\nIdentifier: same-id`,
@@ -114,9 +158,9 @@ describe('workout memo upload', () => {
       expect(await response.json()).toMatchObject({ workoutCount: 7, distanceMeters: 15500, durationSeconds: 5520 });
     }
     const recent = await app.request('https://example.test/v1/workouts', undefined, env);
-    expect(await recent.json()).toEqual({ year, workouts: [
-      { date: `${year}-01-06`, distanceKm: 0.5, durationSeconds: 120 },
-      ...[6, 5, 4, 3].map(day => ({ date: `${year}-01-${String(day).padStart(2, '0')}`, distanceKm: 2.5, durationSeconds: 900 })),
+    expect(await recent.json()).toEqual({ year, recentTotalDistanceKm: 10.5, workouts: [
+      { date: `${year}-01-06`, distanceKm: 0.5, durationSeconds: 120, averageSpeedKmh: null },
+      ...[6, 5, 4, 3].map(day => ({ date: `${year}-01-${String(day).padStart(2, '0')}`, distanceKm: 2.5, durationSeconds: 900, averageSpeedKmh: null })),
     ] });
   });
   it('can accept more than 15 records and skips non-running activity', async () => {
@@ -126,9 +170,9 @@ describe('workout memo upload', () => {
     expect(response.status).toBe(200);
     const responseBody = await response.json();
     expect(responseBody).toMatchObject({ ok: true, year, distanceMeters: 40000, durationSeconds: 14400, workoutCount: 16 });
-    expect(responseBody).toHaveProperty('recentWorkouts', [16, 15, 14, 13, 12].map((day) => ({ date: `${year}-01-${day}`, distanceMeters: 2500, durationSeconds: 900 })));
+    expect(responseBody).toHaveProperty('recentWorkouts', [16, 15, 14, 13, 12].map((day) => ({ date: `${year}-01-${day}`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh: null })));
     const published = await app.request('https://example.test/v1/workouts', undefined, env);
-    expect(await published.json()).toEqual({ year, workouts: [16, 15, 14, 13, 12].map((day) => ({ date: `${year}-01-${day}`, distanceKm: 2.5, durationSeconds: 900 })) });
+    expect(await published.json()).toEqual({ year, recentTotalDistanceKm: 12.5, workouts: [16, 15, 14, 13, 12].map((day) => ({ date: `${year}-01-${day}`, distanceKm: 2.5, durationSeconds: 900, averageSpeedKmh: null })) });
     const svg = await (await app.request('https://example.test/running.svg', undefined, env)).text();
     expect(svg).toContain('Recent runs');
     expect(svg).toContain(`${year}-01-16`);
@@ -152,7 +196,7 @@ describe('workout memo upload', () => {
   it('distinguishes missing recent data from a legacy aggregate without records', async () => {
     expect((await app.request('https://example.test/v1/workouts', undefined, env)).status).toBe(404);
     await env.RUNNING_STATS.put(`running:year:${year}`, JSON.stringify({ year, distanceMeters: 0, durationSeconds: 0 }));
-    expect(await (await app.request('https://example.test/v1/workouts', undefined, env)).json()).toEqual({ year, workouts: null });
+    expect(await (await app.request('https://example.test/v1/workouts', undefined, env)).json()).toEqual({ year, recentTotalDistanceKm: null, workouts: null });
     expect((await app.request('https://example.test/v1/workouts?year=abc', undefined, env)).status).toBe(400);
   });
   it('checks JSON, media type, queries and wrong methods', async () => {

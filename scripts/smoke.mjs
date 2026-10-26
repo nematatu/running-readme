@@ -30,9 +30,18 @@ assert([200, 404].includes(workouts.status));
 const recent = await workouts.json();
 if (workouts.status === 404) assert.equal(recent.error.code, 'STATS_NOT_FOUND');
 else {
-  assert.deepEqual(Object.keys(recent).sort(), ['workouts', 'year']);
+  assert.deepEqual(Object.keys(recent).sort(), ['recentTotalDistanceKm', 'workouts', 'year']);
   assert(recent.workouts === null || (Array.isArray(recent.workouts) && recent.workouts.length <= 5));
-  for (const run of recent.workouts || []) assert.deepEqual(Object.keys(run).sort(), ['date', 'distanceKm', 'durationSeconds']);
+  if (recent.workouts === null) assert.equal(recent.recentTotalDistanceKm, null);
+  else {
+    assert(Number.isFinite(recent.recentTotalDistanceKm) && recent.recentTotalDistanceKm >= 0);
+    const sum = recent.workouts.reduce((total, run) => total + run.distanceKm, 0);
+    assert(Math.abs(sum - recent.recentTotalDistanceKm) <= Number.EPSILON * Math.max(1, sum) * 8);
+  }
+  for (const run of recent.workouts || []) {
+    assert.deepEqual(Object.keys(run).sort(), ['averageSpeedKmh', 'date', 'distanceKm', 'durationSeconds']);
+    assert(run.averageSpeedKmh === null || (Number.isFinite(run.averageSpeedKmh) && run.averageSpeedKmh >= 0 && run.averageSpeedKmh <= 1000));
+  }
 }
 for (const path of ['/v1/stats', '/v1/workouts']) {
   for (const authorization of [null, 'Bearer invalid-token']) {
