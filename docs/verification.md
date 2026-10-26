@@ -54,3 +54,15 @@ A separate review inspected the application, tests, library source, and configur
 ## iPhone verification boundary
 
 The user has reported that Mi Fitness workouts are in Apple Health and Actions Find Workout returns them. The development agent has not operated the iPhone, granted Health access, populated the device Keychain, imported a signed shortcut, run an iOS automation, or verified a locked-device sync. The action metadata and official-document evidence are recorded in the iPhone guide. Do not describe the workflow as fully automatic until successful device runs have been observed.
+
+## Published GitHub README and Camo
+
+On 2026-10-26, commit `52321602aa1f00bcec6ce2a45a36b269bc205864` was pushed to the public repository. Its [GitHub Actions run](https://github.com/nematatu/running-readme/actions/runs/40284740648) passed dependency installation, type generation, type checks, the complete test suite, and a Wrangler dry-run build on Ubuntu. No production deployment Secret is present in CI.
+
+The existing [profile README](https://github.com/nematatu/nematatu) was preserved and a marked `picture` block was appended in [commit 6721018](https://github.com/nematatu/nematatu/commit/6721018ec13f0292ad0db820f90804c8e17d5f3b). An API reread confirmed the full new content matched the expected original plus the card.
+
+Real Chromium opened both published repository READMEs. For both light and dark system preferences, the image decoded at intrinsic size 420×124 and the selected `currentSrc` was the corresponding light or dark Camo URL. Both Camo responses were HTTP 200 with `Content-Type: image/svg+xml; charset=utf-8`, `Cache-Control: no-cache, max-age=0, must-revalidate`, `Age: 0`, and `X-Cache: MISS` during these observations. The rendered card screenshots were visually inspected. Local evidence is `artifacts/github/results-desktop.json` and the card PNGs.
+
+These observations prove successful display and the response policy at that time. They do not measure a future real-data update delay or guarantee immediate Camo refresh. No fictional value was submitted to production to test cache invalidation.
+
+The actual [GitHub profile page](https://github.com/nematatu) was also checked with a 375px viewport in both colour schemes. The card rendered at 293px wide inside the profile content, with a loaded 420×124 source image. Evidence is `artifacts/github/results.json`, `nematatu-light-card.png`, and `nematatu-dark-card.png`.
