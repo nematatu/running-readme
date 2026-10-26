@@ -92,3 +92,15 @@ The parser now counts identical fingerprints once, including equivalent units an
 After the fix, both TypeScript checks, 101 local Workers tests, and two Tokyo year-window assertions passed. This includes snapshot resends, duplicate recent rows, and conflicting IDs preserving prior data. These synthetic tests used local KV. The user's actual successful iPhone resynchronization remains unverified until they rerun it.
 
 The fix was deployed to `https://running-readme-api.amtt.workers.dev` as version `5bb7ad0a-a705-4267-9a24-9fa792503515`, using the existing KV binding. No synthetic records were sent to production.
+
+## Supplied average speed and recent distance total
+
+The owner chose Actions' **Average Speed** after correcting the proposed derived pace. The inspected official Actions 4.0.1 distribution declares `averageSpeed` and no `averagePace` Workout property. The Cherri source now captures that property and adds `Avg Speed` to each text block. The Worker normalizes the supplied unit to `averageSpeedKmh` and stores it on the retained recent rows. It never derives speed or pace from distance and duration. Missing, blank, and legacy values become `null`.
+
+`GET /v1/workouts` adds `recentTotalDistanceKm` for exactly the returned rows, capped at five within the selected year. Legacy aggregate-only storage returns `null` for both recent fields. Existing recent rows remain readable without a KV rewrite. An updated iPhone sync is required to persist supplied speed in those rows.
+
+Both TypeScript checks, 124 local Workers tests, and two Tokyo year-window assertions passed. Coverage includes native speed preserved despite a different distance/duration implied speed, physical KV storage, unit normalization, zero, missing values, invalid speed preserving prior data, old KV read compatibility without writes, and deduplicated recent-five distance sums. Independent review found no blocking defect. No additional dependency was added.
+
+The official Cherri 2.3.0 compiler and graph checker passed with all five properties. Three additional mutations removing the speed property, speed text line, or correct output reference were rejected. Native private signing succeeded and produced an `AEA1` file. The updated shortcut's iPhone import, Average Speed capture, and end-to-end resynchronization remain unverified. No synthetic data was uploaded to production.
+
+The enhancement was deployed as Worker version `4ec33901-c608-4e0a-a4e0-e2c9839db1fe`. A production GET returned HTTP 200 with five existing rows, `recentTotalDistanceKm` matching their sum, and `averageSpeedKmh` present on each row. All five speed values were `null`, as expected before an updated phone upload. Read-only/rejected-auth smoke checks passed for health, JSON, SVG, and endpoint protection. No authenticated production test write was made.

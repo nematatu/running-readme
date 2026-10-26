@@ -2,6 +2,7 @@ Workout Type: Running
 Date: 2026/01/15 07:30
 Duration: 900秒 (15 min : 00 sec)
 Distance: 2,500 m
+Avg Speed: 10 km/h
 
 Workout Type: Running
 Date: 2026/01/16 07:30

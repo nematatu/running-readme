@@ -1,6 +1,6 @@
 # Cherri shortcut
 
-[shortcuts/upload-running-readme.cherri](../shortcuts/upload-running-readme.cherri) describes the complete phone workflow. It queries Actions workouts without a record limit, repeats over the results, keeps Running records, builds four-line text blocks, combines them, reads the token from Actions Keychain, and posts one JSON field to `/v1/workouts`. The API computes annual totals and the latest five runs. No token value is embedded in the source.
+[shortcuts/upload-running-readme.cherri](../shortcuts/upload-running-readme.cherri) describes the complete phone workflow. It queries Actions workouts without a record limit, repeats over the results, keeps Running records, builds five-line text blocks including Average Speed, combines them, reads the token from Actions Keychain, and posts one JSON field to `/v1/workouts`. The API computes annual totals and the latest five runs. No token value is embedded in the source.
 
 The existing shortcut shared by the owner supplied the actual Actions query descriptor, Workout property metadata, and native `running` enum condition. The build script copies those definitions into Cherri's output. It does not copy the original shortcut's note reference, manual selection, workout results, or other actions.
 
@@ -31,7 +31,7 @@ Empty text is not sent. An upload without Running records for the current Tokyo 
 
 Install [official Cherri](https://cherrilang.org/install.html), version 2.3.0. The development check used the official macOS arm64 asset; its SHA-256 matched GitHub's published asset digest `15e4651d4c957a03cdfeb6c5fd74ea8ac66f1d6e20897883fef3547fdd36d264`.
 
-The metadata input is an **unsigned property list** from the owner's working iCloud shortcut, saved privately at `.audit/cherri-import/original.plist` in this checkout. It is intentionally not committed. Rebuilding another installation requires its own compatible export with Find Workout, all four referenced properties, and a native Running condition. A signed local shortcut cannot be substituted; see [Cherri's import documentation](https://cherrilang.org/decompilation.html). Do not use a reference containing embedded credentials or Health results.
+The metadata input is an **unsigned property list** from the owner's working iCloud shortcut, saved privately at `.audit/cherri-import/original.plist` in this checkout. It is intentionally not committed. Rebuilding another installation requires its own compatible export with Find Workout, all five referenced properties, and a native Running condition. A signed local shortcut cannot be substituted; see [Cherri's import documentation](https://cherrilang.org/decompilation.html). Do not use a reference containing embedded credentials or Health results.
 
 ```sh
 CHERRI_BIN=/path/to/cherri python3 scripts/check-cherri.py .audit/cherri-import/original.plist
@@ -44,4 +44,10 @@ The first command compiles a temporary source copy with `--skip-sign`, restores 
 
 **Do not compile and sign the `.cherri` file directly.** The observed Cherri 2.3.0 output omits required exported property metadata; the build script supplies it. Do not add `--derive-uuids`: in the observed compiler output, it reused a grouping identifier across distinct conditionals. Default UUID generation passed the uniqueness check. Cherri's automatic signing fallback is also bypassed so the private definition is not sent to an external signer.
 
-The source sends only Workout Type, Date, Duration, and Distance. Duration and distance are converted to text by Shortcuts, as in the owner's working memo. Device output still needs verification: unsupported units or formatting are rejected by the API rather than guessed. There is no on-device annual-window dictionary, date parsing, or summation step.
+The source sends only Workout Type, Date, Duration, Distance, and Avg Speed. Duration, distance, and the supplied Average Speed property are converted to text by Shortcuts, as in the owner's working memo. Device output still needs verification: unsupported units or formatting are rejected by the API rather than guessed. There is no on-device annual-window dictionary, date parsing, or summation step.
+
+## Capture Average Speed directly
+
+The [official Actions distribution](https://sindresorhus.com/actions#non-app-store-version), version 4.0.1, declares an optional Workout property `averageSpeed` titled **Average Speed**. Its inspected Workout metadata has no `averagePace` property. The owner chose to capture Average Speed. The new fifth text line is `Avg Speed: [Average Speed]`; the Worker stores its supplied value as `averageSpeedKmh`, without deriving pace from duration/distance.
+
+Replace the previous generated shortcut with the updated signed file and sync once to populate speed in KV. Existing Keychain setup remains usable. Older stored rows return `null` for speed until an updated upload provides it. The direct JSON API also returns `recentTotalDistanceKm`, the total of its returned maximum five runs for the selected year.

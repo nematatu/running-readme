@@ -87,7 +87,7 @@ For a fixed archive, add `&amp;year=2026` to all three image URLs. The image use
 | Request | Purpose | Authentication |
 | --- | --- | --- |
 | `POST /v1/workouts` | Parse a complete workout-text snapshot and replace annual totals plus recent five | Bearer `INGEST_TOKEN` |
-| `GET /v1/workouts?year=2026` | Read up to five recent runs for the year | None |
+| `GET /v1/workouts?year=2026` | Read up to five recent runs, their total distance, and supplied average speeds | None |
 | `POST /v1/stats` | Replace a complete yearly aggregate | Bearer `INGEST_TOKEN` |
 | `GET /v1/stats?year=2026` | Read public yearly JSON | None |
 | `GET /running.svg?year=2026&theme=dark` | Render the card | None |
@@ -95,13 +95,15 @@ For a fixed archive, add `&amp;year=2026` to all three image URLs. The image use
 
 The recommended upload is `{ "workoutsText": "Workout Type: Running\nDate: ...\nDuration: ...\nDistance: ..." }`, with each record beginning on a new `Workout Type:` line. Supply complete Running history from one source. The server selects the current Tokyo year by default. See [the phone guide](docs/ios-text-upload.md).
 
+`GET /v1/workouts` adds `recentTotalDistanceKm` for its returned rows and nullable `averageSpeedKmh` per row. Speed comes from the supplied Actions Average Speed property, with unit normalization only. Existing rows without that property return `null`; an updated iPhone sync stores the native value.
+
 The original aggregate-only endpoint remains supported. Send `{ "year": 2026, "distanceMeters": 125600, "durationSeconds": 48600 }`. These are fictional example values, never seeded into production. GET returns `{ "year": 2026, "distanceKm": 125.6, "durationSeconds": 48600 }`. Missing data returns HTTP 404 with `STATS_NOT_FOUND`; a registered zero returns HTTP 200 with zeros. Unknown fields, unknown or repeated query parameters, non-finite numbers, negative values, unsupported methods, and oversized bodies are rejected. See [the complete public contract](docs/api.md).
 
 ## iPhone setup
 
 A [complete Cherri workflow](shortcuts/upload-running-readme.cherri) queries all workouts, selects Running records, builds the text, and posts it using Actions Keychain. Its [build and device setup guide](docs/cherri.md) explains the exported Actions metadata adapter. Compilation, graph checks, and native private signing passed; iPhone import and execution remain unverified. The owner-specific signed file stays local and is not a public release asset.
 
-Follow the [Japanese text-upload guide](docs/ios-text-upload.md). Disable the 15-item query limit and replace manual **Choose from List** with **Repeat with Each**. Build a four-line text for each Running workout, combine the repeat results with newlines, and set that text as the JSON body field `workoutsText`. No iPhone year-window calculation or summation is needed. The API calculates the requested Tokyo year's totals and sorts its latest five runs. Store the token with Actions Keychain and run manually before adding a daily 22:00 automation.
+Follow the [Japanese text-upload guide](docs/ios-text-upload.md). Disable the 15-item query limit and replace manual **Choose from List** with **Repeat with Each**. Build a five-line text including `Avg Speed` for each Running workout, combine the repeat results with newlines, and set that text as the JSON body field `workoutsText`. No iPhone year-window calculation or summation is needed. The API calculates the requested Tokyo year's totals and sorts its latest five runs. Store the token with Actions Keychain and run manually before adding a daily 22:00 automation.
 
 The [original on-device aggregation guide](docs/ios-shortcuts.md) remains available for `POST /v1/stats`, including manually confirmed zero years. That endpoint replaces the whole value with an aggregate and clears any recent-run details.
 
@@ -109,9 +111,9 @@ The iPhone workflow has not been executed on the user's device by this project. 
 
 ## Security and privacy
 
-At `running:year:Y`, the Worker stores `{year, distanceMeters, durationSeconds}` and, for text uploads, up to five recent runs with date, distance, and duration. This reflects the owner’s explicit choice to publish those recent runs. Re-sending replaces the value, without addition. Complete workout history is processed only within the upload request. The original text, older individual workouts, exact start times, IDs, GPS, heart rate, calories, and speed are not persisted. Omit unneeded metrics from the phone text. Legacy metric lines are accepted but discarded.
+At `running:year:Y`, the Worker stores `{year, distanceMeters, durationSeconds}` and, for text uploads, up to five recent runs with date, distance, duration, and optional average speed. This reflects the owner’s explicit choice to publish those recent runs. Re-sending replaces the value, without addition. Complete workout history is processed only within the upload request. The original text, older individual workouts, exact start times, IDs, GPS, heart rate, and calories are not persisted. Omit unneeded metrics from the phone text. Other legacy metric lines are accepted but discarded. `Avg Speed` is stored as nullable `averageSpeedKmh` for each retained recent run, using the supplied Actions property rather than recalculating it from distance and duration.
 
-Annual totals, recent dates/distances/durations, and their changes are public, including through GitHub's image proxy. A single deployment represents one person's totals. There is no account system. Possession of the ingestion token grants overwrite access to every accepted year. Rotate it if exposed. Cloudflare still processes normal network metadata; this is not anonymous hosting.
+Annual totals and recent run data are public. The SVG can pass through GitHub's image proxy; average speed is exposed through the JSON API. A single deployment represents one person's totals. There is no account system. Possession of the ingestion token grants overwrite access to every accepted year. Rotate it if exposed. Cloudflare still processes normal network metadata; this is not anonymous hosting.
 
 The Worker uses strict Zod boundary validation, streamed body limits of 1024 bytes for aggregate uploads and 1MiB for workout-text uploads, Hono's timing-safe Bearer comparison, generic errors, and Hono HTML escaping for SVG text. Secrets belong in Workers Secrets, not configuration. `.secrets`, `.dev.vars`, local storage, logs, and test artifacts are ignored. Worker application observability is disabled to avoid request logging. The code logs neither body nor token.
 

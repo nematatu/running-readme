@@ -21,7 +21,7 @@
 
 別アプリも同じ運動をHealthに登録している場合は、繰り返し内で確認済みの **Source Bundle Identifier** または **Source Name** に限定してください。識別子は実データで確認し、推測で入力しません。APIは見かけが異なる別記録を同じ運動だと判断できません。
 
-## 2. テキストを4行にする
+## 2. テキストを5行にする
 
 各項目のテキストは次の形にします。角括弧部分には文字列を直接書かず、**繰り返し項目** の該当プロパティをマジック変数として入れてください。
 
@@ -30,15 +30,17 @@ Workout Type: [Workout Type]
 Date: [開始日 / Start Date]
 Duration: [継続時間 / Duration]
 Distance: [Total Distance]
+Avg Speed: [Average Speed]
 ```
 
 現在のメモにある日付表示 `yyyy/MM/dd HH:mm` と、秒・m付きの出力をそのまま使えます。日付は **日本時間** としてAPIが解釈します。端末が日本時間で出力していることを確認してください。旅行中などに別タイムゾーンで出力すると、日付と集計年がずれる可能性があります。
 
 - 距離は `2,500 m` または `2.5 km` のような単位付き数値です。
+- **Average Speed** のマジック変数を5行目の `Avg Speed:` に入れます。例は `13.506 km/h` です。APIは距離・時間から速度やペースを再計算せず、提供された値をkm/hに正規化して保存します。値がない場合は空欄のまま送り、`null` として扱います。
 - 時間は `900秒` または `900秒 (15 min : 00 sec)` のような出力です。括弧内は集計に使いません。
 - カンマ区切りは3桁ごと、小数点は `.` で、小数は6桁まで対応します。別形式は推測で解釈せずエラーにします。
-- 必要なら `Identifier: [Identifier]` を5行目に追加できます。同じIDで開始日時・距離・時間が異なる場合は送信全体を拒否します。同じ内容の重複は1件として集計します。
-- **End date、Heart rate、Active calories、Avg Speedはテキストから外してください。** 旧形式として送られてもAPIは保存・公開しませんが、送信自体を減らすためです。
+- 必要なら `Identifier: [Identifier]` を6行目に追加できます。同じIDで開始日時・距離・時間が異なる場合は送信全体を拒否します。同じ内容の重複は1件として集計します。
+- **End date、Heart rate、Active caloriesはテキストから外してください。** 旧形式として送られてもAPIは保存・公開しませんが、送信自体を減らすためです。
 - 距離や時間が欠損している記録をゼロへ置き換えないでください。APIは欠損を拒否します。
 
 このテキストを繰り返し内の最後の出力にしてください。コピー側の「メモに追加」は外し、繰り返し結果がNoteオブジェクトではなく、このテキストになるようにします。
@@ -90,9 +92,10 @@ Distance: [Total Distance]
 3. 返るJSONで `ok` が真、`year` が対象年、`workoutCount` がその年のRunning件数と一致することを確認します。
 4. `distanceMeters` と `durationSeconds` をHealthの対象年の記録と照合します。`ok: true` は送信した範囲の処理成功であり、全件取得できたことの証明ではありません。
 5. [年間JSON](https://running-readme-api.amtt.workers.dev/v1/stats)と[直近5件JSON](https://running-readme-api.amtt.workers.dev/v1/workouts)を開きます。
-6. [SVG](https://running-readme-api.amtt.workers.dev/running.svg)と[プロフィール](https://github.com/nematatu)で、年間合計とその年の直近最大5件を確認します。
+6. 直近JSONの `recentTotalDistanceKm` が、表示された最大5件の距離の合計と一致することを確認します。`averageSpeedKmh` は各項目のAverage Speedと比較します。旧ショートカットでは速度を送っていないため、更新したショートカットで再同期するまで `null` です。
+7. [SVG](https://running-readme-api.amtt.workers.dev/running.svg)と[プロフィール](https://github.com/nematatu)で、年間合計とその年の直近最大5件を確認します。
 
-公開される個別情報は **日付・距離・所要時間** です。開始時刻、Identifier、元テキスト、心拍数などは保存・公開しません。全記録はリクエスト中だけ処理し、KVには年間合計と直近最大5件だけを保存します。
+公開される個別情報は **日付・距離・所要時間・平均速度** です。開始時刻、Identifier、元テキスト、心拍数などは保存・公開しません。全記録はリクエスト中だけ処理し、KVには年間合計と直近最大5件だけを保存します。
 
 ## 6. 毎日22:00に動かす
 
