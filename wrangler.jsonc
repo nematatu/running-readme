@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "running-readme-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "kv_namespaces": [{ "binding": "RUNNING_STATS", "id": "91415351a1a046adb1e9aadb121acdaa" }],
+  "observability": { "enabled": false }
+}

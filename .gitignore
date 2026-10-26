@@ -1,0 +1,11 @@
+node_modules/
+.wrangler/
+.dev.vars*
+!.dev.vars.example
+.env*
+.secrets/
+.audit/
+artifacts/
+worker-configuration.d.ts
+.DS_Store
+*.log

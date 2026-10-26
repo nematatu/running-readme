@@ -1,0 +1,136 @@
+# running-readme
+
+Publish annual running distance and duration from Apple Health to your GitHub README. Your iPhone aggregates workouts with Shortcuts and Actions. A Cloudflare Worker stores only the yearly totals and serves JSON and an SVG card.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://running-readme-api.amtt.workers.dev/running.svg?theme=dark">
+  <source media="(prefers-color-scheme: light)" srcset="https://running-readme-api.amtt.workers.dev/running.svg?theme=light">
+  <img alt="Annual running distance and duration" src="https://running-readme-api.amtt.workers.dev/running.svg?theme=light" width="420">
+</picture>
+
+This live card belongs to this deployment. **Not synced** means no annual aggregate has been registered. It does not mean zero kilometres. Self-host your own Worker to publish your own totals.
+
+[日本語セットアップ](docs/setup-ja.md) · [iPhone setup](docs/ios-shortcuts.md) · [Troubleshooting](docs/ios-shortcuts-troubleshooting.md) · [API reference](docs/api.md) · [Verification](docs/verification.md)
+
+## How it works
+
+```text
+Xiaomi Smart Band → Mi Fitness → Apple Health
+                                  ↓
+                    iPhone Shortcuts + Actions
+                    Running · one source · annual sum
+                                  ↓ authenticated HTTPS POST
+                       Cloudflare Worker (Hono + Zod)
+                                  ↓
+                           Workers KV (one key/year)
+                                  ↓
+                    public JSON API + SVG → GitHub README
+```
+
+HealthKit runs on the iPhone, never when someone views your README. The Worker needs no cron, continuously running Mac, paid running API, or daily GitHub commit. The public endpoints remain available when the iPhone is offline.
+
+## Requirements
+
+- Node.js 22 or later, npm, Git, and a Cloudflare account with Workers and KV access.
+- An iPhone with Apple Health workouts, Shortcuts, and [Actions](https://sindresorhus.com/actions).
+- Permission for Actions to read workouts. On this user's device, Mi Fitness syncing and Actions Find Workout retrieval were already confirmed by the user. This repository does not implement wearable connectivity.
+
+Runtime dependencies are Hono and Zod. Development uses Wrangler, TypeScript, Vitest, and Cloudflare's current Workers Vitest plugin. Versions are pinned in `package-lock.json`.
+
+## Deploy your own instance
+
+```sh
+git clone https://github.com/nematatu/running-readme.git
+cd running-readme
+npm ci
+cp .dev.vars.example .dev.vars
+npm run types
+npm run check
+npx wrangler login
+npx wrangler whoami
+npx wrangler kv namespace create RUNNING_STATS
+```
+
+Edit `wrangler.jsonc`. Choose your Worker name and replace the included deployment's KV `id` with the new namespace ID. Namespace IDs are public configuration, not credentials. Do not use `--remote` for local tests.
+
+Create a private local token file and register it without printing the value:
+
+```sh
+mkdir -p .secrets
+chmod 700 .secrets
+node --input-type=module -e 'import {randomBytes} from "node:crypto"; import {writeFileSync} from "node:fs"; writeFileSync(".secrets/ingest-token.txt",randomBytes(32).toString("hex")+"\n",{mode:0o600,flag:"wx"});'
+npx wrangler secret put INGEST_TOKEN < .secrets/ingest-token.txt
+npm run deploy
+npm run smoke -- https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev
+```
+
+If Wrangler asks to create the new Worker while registering its Secret, confirm creation. Deploy outputs the actual URL. Replace the URLs in your card and iPhone shortcut with your URL. Keep `.dev.vars` as a separate development token. Never paste the production token into an issue, README, screenshot, workflow, or shared shortcut.
+
+Cloudflare Workers and KV usage follows [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) and [KV pricing](https://developers.cloudflare.com/kv/platform/pricing/). No extra service or plan upgrade is required by this application. Public traffic can exceed included usage; this project does not impose a billing cap.
+
+## Embed this deployment
+
+Copy this into a GitHub README. Omitting `year` follows the current year in **Asia/Tokyo**, including after New Year.
+
+```html
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://running-readme-api.amtt.workers.dev/running.svg?theme=dark">
+  <source media="(prefers-color-scheme: light)" srcset="https://running-readme-api.amtt.workers.dev/running.svg?theme=light">
+  <img alt="Annual running distance and duration" src="https://running-readme-api.amtt.workers.dev/running.svg?theme=light" width="420">
+</picture>
+```
+
+For a fixed archive, add `&amp;year=2026` to all three image URLs. The image uses a responsive SVG viewBox and no external font, image, CSS, or script.
+
+## API
+
+| Request | Purpose | Authentication |
+| --- | --- | --- |
+| `POST /v1/stats` | Replace a complete yearly aggregate | Bearer `INGEST_TOKEN` |
+| `GET /v1/stats?year=2026` | Read public yearly JSON | None |
+| `GET /running.svg?year=2026&theme=dark` | Render the card | None |
+| `GET /health` | Return `{"status":"ok"}` | None |
+
+Send `{ "year": 2026, "distanceMeters": 125600, "durationSeconds": 48600 }`. These are fictional example values, never seeded into production. GET returns `{ "year": 2026, "distanceKm": 125.6, "durationSeconds": 48600 }`. Missing data returns HTTP 404 with `STATS_NOT_FOUND`; a registered zero returns HTTP 200 with zeros. Unknown fields, unknown or repeated query parameters, non-finite numbers, negative values, unsupported methods, and oversized bodies are rejected. See [the complete public contract](docs/api.md).
+
+## iPhone setup
+
+Follow the [Japanese action-by-action guide](docs/ios-shortcuts.md). Change the existing **Stair Climbing** condition to **Running**. Sum all matching workouts from a single verified source with Start Date inside the Tokyo year. Convert measurements to metres and seconds before building a numeric JSON dictionary. Store the token with Actions Keychain and run the shortcut manually once before adding a daily 22:00 automation.
+
+The iPhone workflow has not been executed on the user's device by this project. HealthKit access while locked and unattended shortcut execution are not guaranteed. If a query returns zero workouts, automatic upload stops because HealthKit can conceal denied read access as an empty result. A genuine zero year can be sent after a manual permission and filter check.
+
+## Security and privacy
+
+Only `{year, distanceMeters, durationSeconds}` is stored at `running:year:Y`. Re-sending replaces the value, without addition. No source records, GPS, workout IDs, routes, heart rate, calories, identity, or per-workout timestamps are sent or stored.
+
+Annual totals and their changes are public, including through GitHub's image proxy. A single deployment represents one person's totals. There is no account system. Possession of the ingestion token grants overwrite access to every accepted year. Rotate it if exposed. Cloudflare still processes normal network metadata; this is not anonymous hosting.
+
+The Worker uses strict Zod boundary validation, a 1024-byte streamed body limit, Hono's timing-safe Bearer comparison, generic errors, and Hono HTML escaping for SVG text. Secrets belong in Workers Secrets, not configuration. `.secrets`, `.dev.vars`, local storage, logs, and test artifacts are ignored. Worker application observability is disabled to avoid request logging. The code logs neither body nor token.
+
+## Limits and caching
+
+- Workers KV is eventually consistent. Both values and missing lookups can remain stale for **60 seconds or more** across locations. A successful POST means KV accepted the write, not that every reader sees it yet. See [Cloudflare's consistency description](https://developers.cloudflare.com/kv/concepts/how-kv-works/).
+- SVG sends `Cache-Control: no-cache, max-age=0, must-revalidate`, following [GitHub's advice for changing images](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-anonymized-urls). Camo can still delay README refresh. This project promises no refresh deadline. Open the [direct SVG](https://running-readme-api.amtt.workers.dev/running.svg) or [JSON](https://running-readme-api.amtt.workers.dev/v1/stats) to distinguish storage delay from GitHub caching. The linked troubleshooting guide explains infrequent Camo purging. No cache-purge cron or daily commit is needed.
+- The card rounds kilometres to one decimal and floors duration to complete minutes. JSON retains metres divided by 1000 and the submitted seconds.
+- Start Date assigns a whole workout to a year. Workouts crossing midnight on New Year are not split. A run synced after 22:00 appears on the next successful sync.
+- One iPhone should send one annual snapshot at a time. Concurrent snapshots are last-write-wins. Retry a failed complete snapshot manually; there is no server job or automatic retry queue.
+- De-duplication requires choosing one source on the iPhone. Different IDs from different apps can represent the same run. The Worker cannot deduplicate annual totals.
+- Shortcuts time-of-day automations follow device time. Keep the phone in the Tokyo time zone for 22:00 JST. Health authorization, locked-device protection, device shutdown, connectivity, and iOS execution restrictions can prevent a run.
+
+## Development
+
+```sh
+npm ci
+cp .dev.vars.example .dev.vars
+npm run types
+npm run check
+npm run dev
+```
+
+Tests run in local workerd with local KV. CI runs checks and a dry-run build, and has no production token or deploy job. `npm run smoke -- URL` performs read-only and rejected-auth requests, with zero authenticated writes. Optional [browser checks and screenshots](docs/verification.md) use Playwright without adding it to runtime dependencies.
+
+Source is deliberately small. `src/index.ts` owns HTTP validation and KV. `src/svg.ts` renders a pure card. `test/api.test.ts` exercises the endpoints. `examples/year-window.js` is the tested Tokyo date expression used by the shortcut.
+
+## License
+
+[MIT](LICENSE).

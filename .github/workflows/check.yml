@@ -1,0 +1,20 @@
+name: Check
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: cp .dev.vars.example .dev.vars
+      - run: npm run types
+      - run: npm run check
+      - run: npx wrangler deploy --dry-run
