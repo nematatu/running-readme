@@ -1,4 +1,6 @@
-"""Compile the sender without signing or running it, then verify its actual plist."""
+"""Compile Cherri and preserve canonical Actions property metadata without running it."""
+import argparse
+from copy import deepcopy
 import os
 from pathlib import Path
 import plistlib
@@ -6,35 +8,138 @@ import shutil
 import subprocess
 import tempfile
 
-root = Path(__file__).resolve().parent.parent
-compiler = os.environ.get('CHERRI_BIN') or shutil.which('cherri')
-if not compiler:
-    raise SystemExit('Install Cherri 2.3.0 or set CHERRI_BIN to its binary.')
-source = root / 'shortcuts/upload-running-readme.cherri'
-with tempfile.TemporaryDirectory(prefix='running-readme-cherri-') as directory:
-    temporary = Path(directory)
-    copied = temporary / source.name
-    shutil.copyfile(source, copied)
-    subprocess.run([compiler, str(copied), '--skip-sign'], check=True)
-    generated = temporary / 'Upload Running README_unsigned.shortcut'
-    workflow = plistlib.loads(generated.read_bytes())
+ROOT = Path(__file__).resolve().parent.parent
+QUERY = 'com.sindresorhus.Actions.WorkoutAppEntity'
+KEYCHAIN = 'com.sindresorhus.Actions.KeychainGetIntent'
+PROPERTIES = {'workoutType', 'startDate', 'duration', 'totalDistance'}
+
+
+def nodes(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from nodes(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from nodes(child)
+
+
+def parameters(workflow, identifier):
+    return [action.get('WFWorkflowActionParameters', {}) for action in workflow['WFWorkflowActions']
+            if action['WFWorkflowActionIdentifier'] == identifier]
+
+
+def only(items):
+    assert len(items) == 1, 'Expected exactly one matching action or property.'
+    return items[0]
+
+
+def canonical_data(reference):
+    query = only(parameters(reference, QUERY))
+    descriptor = query['AppIntentDescriptor']
+    assert descriptor['BundleIdentifier'] == 'com.sindresorhus.Actions'
+    assert descriptor['AppIntentIdentifier'] == 'WorkoutAppEntity'
+    properties = {}
+    for node in nodes(reference):
+        if node.get('Type') != 'WFPropertyVariableAggrandizement' or node.get('PropertyName') not in PROPERTIES:
+            continue
+        name = node['PropertyName']
+        info = node['PropertyUserInfo']
+        assert info['WFLinkEntityContentPropertyUserInfoPropertyIdentifier'] == name
+        assert isinstance(info['WFLinkEntityContentPropertyUserInfoEnumMetadata'], bytes)
+        if name in properties:
+            assert properties[name] == info, 'Conflicting property metadata in reference.'
+        properties[name] = deepcopy(info)
+    assert properties.keys() == PROPERTIES, 'Reference lacks a required Workout property.'
+    table = only([node['WFConditions'] for node in nodes(reference)
+                  if isinstance(node.get('WFConditions'), dict)
+                  and any(row.get('WFLinkEnumeration') == 'running' for row in
+                          node['WFConditions']['Value']['WFActionParameterFilterTemplates'])])
+    running = only([row for row in table['Value']['WFActionParameterFilterTemplates']
+                    if row.get('WFLinkEnumeration') == 'running' and row.get('WFCondition') == 4])
+    return query, properties, table, running
+
+
+def materialize(workflow, reference):
+    source_query, properties, source_table, source_running = canonical_data(reference)
+    query = only(parameters(workflow, QUERY))
+    assert query['WFContentItemLimitEnabled'] is False
+    query['AppIntentDescriptor'] = deepcopy(source_query['AppIntentDescriptor'])
+    query['WFContentItemFilter'] = deepcopy(source_query['WFContentItemFilter'])
+    assert query['WFContentItemFilter']['Value']['WFActionParameterFilterTemplates'] == []
+    for node in nodes(workflow):
+        if node.get('Type') == 'WFPropertyVariableAggrandizement':
+            assert node['PropertyName'] in properties, 'Unknown Workout property in source.'
+            assert node.get('PropertyUserInfo') in (None, 0)
+            node['PropertyUserInfo'] = deepcopy(properties[node['PropertyName']])
+    condition = only([item for item in parameters(workflow, 'is.workflow.actions.conditional')
+                      if item.get('WFControlFlowMode') == 0
+                      and any(node.get('PropertyName') == 'workoutType' for node in nodes(item.get('WFInput')))])
+    assert condition['WFCondition'] == 4 and condition['WFConditionalActionString'] == 'Running'
+    running = deepcopy(source_running)
+    running['WFInput'] = deepcopy(condition['WFInput'])
+    for node in nodes(running['WFInput']):
+        if 'Aggrandizements' in node:
+            node['Aggrandizements'] = [item for item in node['Aggrandizements']
+                                      if item.get('Type') != 'WFCoercionVariableAggrandizement']
+    for key in ['WFCondition', 'WFConditionalActionString', 'WFInput']:
+        del condition[key]
+    condition['WFConditions'] = deepcopy(source_table)
+    condition['WFConditions']['Value']['WFActionParameterFilterTemplates'] = [running]
+    keychain = only(parameters(workflow, KEYCHAIN))
+    keychain['AppIntentDescriptor'] = deepcopy(source_query['AppIntentDescriptor'])
+    keychain['AppIntentDescriptor']['AppIntentIdentifier'] = 'KeychainGetIntent'
+    for key in ['WFWorkflowClientVersion', 'WFWorkflowMinimumClientVersion', 'WFWorkflowMinimumClientVersionString']:
+        if key in reference:
+            workflow[key] = deepcopy(reference[key])
+    return workflow
+
+
+def references(value):
+    return {node['OutputUUID'] for node in nodes(value) if 'OutputUUID' in node}
+
+
+def verify(workflow, reference):
+    source_query, properties, _, _ = canonical_data(reference)
     actions = workflow['WFWorkflowActions']
-    assert workflow['WFWorkflowInputContentItemClasses'] == ['WFStringContentItem']
-    assert workflow['WFWorkflowNoInputBehavior']['Name'] == 'WFWorkflowNoInputBehaviorShowError'
-    conditional_starts = [a['WFWorkflowActionParameters']['GroupingIdentifier'] for a in actions
-                          if a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.conditional'
-                          and a['WFWorkflowActionParameters']['WFControlFlowMode'] == 0]
-    assert len(conditional_starts) == len(set(conditional_starts)) == 3
-    keychains = [a for a in actions if a['WFWorkflowActionIdentifier'] == 'com.sindresorhus.Actions.KeychainGetIntent']
-    assert len(keychains) == 1
-    keychain = keychains[0]['WFWorkflowActionParameters']
+    assert not parameters(workflow, 'is.workflow.actions.choosefromlist')
+    assert not parameters(workflow, 'is.workflow.actions.appendnote')
+    assert not workflow.get('WFWorkflowHasShortcutInputVariables', False)
+    query = only(parameters(workflow, QUERY))
+    assert query['WFContentItemLimitEnabled'] is False
+    assert query['AppIntentDescriptor'] == source_query['AppIntentDescriptor']
+    assert query['WFContentItemSortProperty'] == 'startDate'
+    assert query['WFContentItemSortOrder'] == 'Latest First'
+    repeats = parameters(workflow, 'is.workflow.actions.repeat.each')
+    assert len(repeats) == 2 and repeats[0]['WFControlFlowMode'] == 0 and repeats[1]['WFControlFlowMode'] == 2
+    assert references(repeats[0]['WFInput']) == {query['UUID']}
+    workout = only([item for item in parameters(workflow, 'is.workflow.actions.setvariable')
+                    if item['WFVariableName'] == 'workout'])
+    assert workout['WFInput']['Value']['VariableName'] == 'Repeat Item'
+    seen = set()
+    for node in nodes(workflow):
+        if node.get('Type') == 'WFPropertyVariableAggrandizement':
+            name = node['PropertyName']
+            assert node['PropertyUserInfo'] == properties[name]
+            seen.add(name)
+    assert seen == PROPERTIES
+    starts = [item for item in parameters(workflow, 'is.workflow.actions.conditional') if item.get('WFControlFlowMode') == 0]
+    assert len(starts) == 5 and len({item['GroupingIdentifier'] for item in starts}) == 5
+    running = only([item for item in starts if 'WFConditions' in item])
+    predicates = running['WFConditions']['Value']['WFActionParameterFilterTemplates']
+    assert len(predicates) == 1 and predicates[0]['WFLinkEnumeration'] == 'running' and predicates[0]['WFCondition'] == 4
+    assert any(node.get('VariableName') == 'workout' for node in nodes(predicates[0]['WFInput']))
+    dates = parameters(workflow, 'is.workflow.actions.format.date')
+    offset = only([item for item in dates if item.get('WFDateFormat') == 'XXX'])
+    only([item for item in dates if item.get('WFDateFormat') == 'yyyy/MM/dd HH:mm:ss'])
+    joined = only(parameters(workflow, 'is.workflow.actions.text.combine'))
+    assert references(joined['text']) == {repeats[1]['UUID']}
+    text = only(parameters(workflow, 'is.workflow.actions.text.trimwhitespace'))
+    assert references(text['WFInput']) == {joined['UUID']}
+    keychain = only(parameters(workflow, KEYCHAIN))
     assert keychain['key'] == 'running-readme.ingest-token'
-    texts = [a for a in actions if a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.detect.text']
-    assert len(texts) == 1
-    text_uuid = texts[0]['WFWorkflowActionParameters']['UUID']
-    requests = [a for a in actions if a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.downloadurl']
-    assert len(requests) == 1
-    request = requests[0]['WFWorkflowActionParameters']
+    assert keychain['AppIntentDescriptor']['AppIntentIdentifier'] == 'KeychainGetIntent'
+    request = only(parameters(workflow, 'is.workflow.actions.downloadurl'))
     assert request['WFURL'] == 'https://running-readme-api.amtt.workers.dev/v1/workouts'
     assert request['WFHTTPMethod'] == 'POST' and request['WFHTTPBodyType'] == 'JSON'
 
@@ -43,50 +148,55 @@ with tempfile.TemporaryDirectory(prefix='running-readme-cherri-') as directory:
                 for item in value['Value']['WFDictionaryFieldValueItems']}
 
     body = fields(request['WFJSONValues'])
-    assert list(body) == ['workoutsText']
-    assert list(body['workoutsText']['attachmentsByRange'].values())[0]['OutputUUID'] == text_uuid
+    assert list(body) == ['workoutsText'] and references(body['workoutsText']) == {text['UUID']}
     headers = fields(request['WFHTTPHeaders'])
     assert headers['Content-Type']['string'] == 'application/json'
     assert headers['Authorization']['string'] == 'Bearer \ufffc'
-    assert list(headers['Authorization']['attachmentsByRange'].values())[0]['OutputUUID'] == keychain['UUID']
-    def references(value):
-        found = set()
-        if isinstance(value, dict):
-            if 'OutputUUID' in value:
-                found.add(value['OutputUUID'])
-            for child in value.values():
-                found.update(references(child))
-        elif isinstance(value, list):
-            for child in value:
-                found.update(references(child))
-        return found
+    assert references(headers['Authorization']) == {keychain['UUID']}
+    value = only(parameters(workflow, 'is.workflow.actions.getvalueforkey'))
+    assert value['WFDictionaryKey'] == 'ok'
+    number = only(parameters(workflow, 'is.workflow.actions.number'))
+    assert references(number['WFNumberActionNumber']) == {value['UUID']}
+    guards = [item for item in starts if 'WFConditions' not in item]
+    for guard, expected_uuid, expected_condition in zip(
+            guards, [offset['UUID'], text['UUID'], keychain['UUID'], number['UUID']], [5, 101, 101, 5]):
+        assert references(guard['WFInput']) == {expected_uuid} and guard['WFCondition'] == expected_condition
+        index = next(i for i, action in enumerate(actions) if action.get('WFWorkflowActionParameters') is guard)
+        end = next(i for i in range(index + 1, len(actions))
+                   if actions[i].get('WFWorkflowActionParameters', {}).get('GroupingIdentifier') == guard['GroupingIdentifier']
+                   and actions[i]['WFWorkflowActionParameters'].get('WFControlFlowMode') == 2)
+        assert any(action['WFWorkflowActionIdentifier'] == 'is.workflow.actions.exit' for action in actions[index + 1:end])
+        assert not any(action['WFWorkflowActionIdentifier'] == 'is.workflow.actions.downloadurl' for action in actions[index + 1:end])
+    assert guards[0]['WFConditionalActionString'] == '+09:00'
+    assert guards[-1]['WFNumberValue'] == 1
 
-    values = [a['WFWorkflowActionParameters'] for a in actions
-              if a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.getvalueforkey']
-    assert len(values) == 1 and values[0]['WFDictionaryKey'] == 'ok'
-    numbers = [a['WFWorkflowActionParameters'] for a in actions
-               if a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.number']
-    assert len(numbers) == 1
-    assert references(numbers[0]['WFNumberActionNumber']) == {values[0]['UUID']}
-    guards = [(index, a['WFWorkflowActionParameters']) for index, a in enumerate(actions)
-              if a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.conditional'
-              and a['WFWorkflowActionParameters']['WFControlFlowMode'] == 0]
-    for (index, guard), expected_uuid, expected_condition in zip(
-            guards, [text_uuid, keychain['UUID'], numbers[0]['UUID']], [101, 101, 5]):
-        assert references(guard['WFInput']) == {expected_uuid}
-        assert guard['WFCondition'] == expected_condition
-        end = next(end_index for end_index in range(index + 1, len(actions))
-                   if actions[end_index]['WFWorkflowActionIdentifier'] == 'is.workflow.actions.conditional'
-                   and actions[end_index]['WFWorkflowActionParameters']['WFControlFlowMode'] == 2
-                   and actions[end_index]['WFWorkflowActionParameters']['GroupingIdentifier'] == guard['GroupingIdentifier'])
-        assert any(a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.exit' for a in actions[index + 1:end])
-        assert not any(a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.downloadurl' for a in actions[index + 1:end])
-    assert guards[-1][1]['WFNumberValue'] == 1
-    assert len([a for a in actions if a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.downloadurl']) == 1
-    output_text = generated.read_bytes()
-    assert b'INGEST_TOKEN=' not in output_text
-    destination = root / 'artifacts/cherri'
-    destination.mkdir(parents=True, exist_ok=True)
-    (destination / 'upload-running-readme.plist').write_bytes(output_text)
-print('Cherri compiled; input guards, distinct conditions, Keychain reference, JSON body and Bearer reference verified.')
-print('This check did not sign, import, run, read Health/Keychain, or contact the API.')
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('reference', type=Path, help='Unsigned plist exported from the working iOS shortcut.')
+    args = parser.parse_args()
+    reference = plistlib.loads(args.reference.read_bytes())
+    compiler = os.environ.get('CHERRI_BIN') or shutil.which('cherri')
+    if not compiler:
+        raise SystemExit('Install Cherri 2.3.0 or set CHERRI_BIN to its binary.')
+    source = ROOT / 'shortcuts/upload-running-readme.cherri'
+    with tempfile.TemporaryDirectory(prefix='running-readme-cherri-') as directory:
+        temporary = Path(directory)
+        copied = temporary / source.name
+        shutil.copyfile(source, copied)
+        subprocess.run([compiler, str(copied), '--skip-sign'], check=True)
+        generated = temporary / 'Upload Running README_unsigned.shortcut'
+        workflow = materialize(plistlib.loads(generated.read_bytes()), reference)
+        verify(workflow, reference)
+        destination = ROOT / 'artifacts/cherri'
+        destination.mkdir(parents=True, exist_ok=True)
+        destination.chmod(0o700)
+        artifact = destination / 'Upload Running README_unsigned.shortcut'
+        artifact.write_bytes(plistlib.dumps(workflow, fmt=plistlib.FMT_XML))
+        artifact.chmod(0o600)
+    print('Full Cherri flow compiled and canonical Actions metadata preserved; graph checks passed.')
+    print('Health/Keychain reads, API submission, signing, and iPhone execution were not performed.')
+
+
+if __name__ == '__main__':
+    main()

@@ -1,16 +1,40 @@
 #include 'actions/text'
 #include 'actions/web'
+#include 'actions/calendar'
 
 #define name Upload Running README
 #define color green
-#define inputs text
 #define outputs text
-#define noinput stopwith "全件のRunningテキストを入力してください。"
 
-// The workout exporter passes its complete text as Shortcut Input.
+// Build with scripts/check-cherri.py to preserve the exported Actions metadata.
+action 'com.sindresorhus.Actions.WorkoutAppEntity' findWorkouts(): array {
+    "WFContentItemSortProperty": "startDate",
+    "WFContentItemSortOrder": "Latest First",
+    "WFContentItemLimitEnabled": false
+}
+
 action 'com.sindresorhus.Actions.KeychainGetIntent' getIngestToken(text key: 'key'): text
 
-const workoutsText = getText(ShortcutInput)
+const offset = formatDate(CurrentDate, "Custom", "XXX")
+if offset != "+09:00" {
+    showNotification("端末のタイムゾーンを日本時間にして実行してください。", "Running README", false)
+    stop()
+}
+
+const workouts = findWorkouts()
+const blocks = for workout in workouts {
+    const block = if @workout['workoutType'].text == "Running" {
+        const start = formatDate(@workout['startDate'], "Custom", "yyyy/MM/dd HH:mm:ss")
+        const duration = getText(@workout['duration'])
+        const distance = getText(@workout['totalDistance'])
+        text("Workout Type: Running\nDate: {start}\nDuration: {duration}\nDistance: {distance}")
+    } else {
+        nothing()
+    }
+    getText(block)
+}
+const joined = joinText(blocks, "\n\n")
+const workoutsText = trimWhitespace(joined)
 if !workoutsText {
     showNotification("Runningの入力がないため送信しません。", "Running README", false)
     stop()

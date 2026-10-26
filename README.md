@@ -99,7 +99,7 @@ The original aggregate-only endpoint remains supported. Send `{ "year": 2026, "d
 
 ## iPhone setup
 
-A [Cherri text-sender source](shortcuts/upload-running-readme.cherri) is available with [compile checks and current limitations](docs/cherri.md). It currently covers text input through POST, not Health extraction. Full Actions Find Workout generation needs the existing iOS shortcut’s real action definitions. Native signing and iPhone execution have not succeeded or been verified here.
+A [complete Cherri workflow](shortcuts/upload-running-readme.cherri) queries all workouts, selects Running records, builds the text, and posts it using Actions Keychain. Its [build and device setup guide](docs/cherri.md) explains the exported Actions metadata adapter. Compilation, graph checks, and native private signing passed; iPhone import and execution remain unverified. The owner-specific signed file stays local and is not a public release asset.
 
 Follow the [Japanese text-upload guide](docs/ios-text-upload.md). Disable the 15-item query limit and replace manual **Choose from List** with **Repeat with Each**. Build a four-line text for each Running workout, combine the repeat results with newlines, and set that text as the JSON body field `workoutsText`. No iPhone year-window calculation or summation is needed. The API calculates the requested Tokyo year's totals and sorts its latest five runs. Store the token with Actions Keychain and run manually before adding a daily 22:00 automation.
 
