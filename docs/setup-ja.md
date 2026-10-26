@@ -5,9 +5,10 @@
 - GitHubリポジトリ: https://github.com/nematatu/running-readme
 - Worker: https://running-readme-api.amtt.workers.dev
 - 公開統計: https://running-readme-api.amtt.workers.dev/v1/stats
+- 公開直近5件: https://running-readme-api.amtt.workers.dev/v1/workouts
 - カード: https://running-readme-api.amtt.workers.dev/running.svg
 
-このデプロイを利用する場合、GitHubリポジトリ作成、KV作成、Secret登録、Cloudflareデプロイのやり直しは不要です。iPhoneの設定を[操作手順書](ios-shortcuts.md)に従って進めてください。未登録のカードは `Not synced` と表示されます。
+このデプロイを利用する場合、GitHubリポジトリ作成、KV作成、Secret登録、Cloudflareデプロイのやり直しは不要です。iPhoneの設定を[テキスト送信の操作手順書](ios-text-upload.md)に従って進めてください。未登録のカードは `Not synced` と表示されます。
 
 ## トークンを取り出す
 

@@ -13,3 +13,7 @@ Adopted elements are a compact rounded bordered SVG card, a heading above metric
 GitHub's primary announcement describing the native picture feature: https://github.blog/changelog/2022-05-19-specify-theme-context-for-images-in-markdown-beta/
 
 The actual embedding is verified on the published repository README, independently of the local SVG tests. GitHub image-proxy response headers and their observed cache policy are recorded in `verification.md`. We do not infer cache refresh guarantees from a single fetch.
+
+## Recent-run rows
+
+For the owner-approved recent five rows, the existing GitHub Readme Stats card remains the frame. The [GitHub Primer DataTable](https://primer.style/product/components/data-table/) public component reference was also inspected on 2026-10-26. Adopted elements are a header row, aligned date and numeric columns, restrained dividers, and consistent row spacing. This SVG does not add an interactive table, sort controls, pagination, or a UI dependency. No claim about Primer user counts or ratings is made.

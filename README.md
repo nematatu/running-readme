@@ -1,6 +1,6 @@
 # running-readme
 
-Publish annual running distance and duration from Apple Health to your GitHub README. Your iPhone aggregates workouts with Shortcuts and Actions. A Cloudflare Worker stores only the yearly totals and serves JSON and an SVG card.
+Publish annual running totals and the latest five runs from Apple Health to your GitHub README. Your iPhone sends the workout text it already generates with Shortcuts and Actions. The Worker aggregates it and stores only annual totals plus up to five recent runs per year, then serves JSON and an SVG card.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://running-readme-api.amtt.workers.dev/running.svg?theme=dark">
@@ -10,7 +10,7 @@ Publish annual running distance and duration from Apple Health to your GitHub RE
 
 This live card belongs to this deployment. **Not synced** means no annual aggregate has been registered. It does not mean zero kilometres. Self-host your own Worker to publish your own totals.
 
-[日本語セットアップ](docs/setup-ja.md) · [iPhone setup](docs/ios-shortcuts.md) · [Troubleshooting](docs/ios-shortcuts-troubleshooting.md) · [API reference](docs/api.md) · [Verification](docs/verification.md)
+[日本語セットアップ](docs/setup-ja.md) · [iPhone text upload](docs/ios-text-upload.md) · [Troubleshooting](docs/ios-shortcuts-troubleshooting.md) · [API reference](docs/api.md) · [Verification](docs/verification.md)
 
 ## How it works
 
@@ -18,9 +18,9 @@ This live card belongs to this deployment. **Not synced** means no annual aggreg
 Xiaomi Smart Band → Mi Fitness → Apple Health
                                   ↓
                     iPhone Shortcuts + Actions
-                    Running · one source · annual sum
+                    Running · one source · full text export
                                   ↓ authenticated HTTPS POST
-                       Cloudflare Worker (Hono + Zod)
+                       Cloudflare Worker (parse + annual sum + recent 5)
                                   ↓
                            Workers KV (one key/year)
                                   ↓
@@ -86,35 +86,43 @@ For a fixed archive, add `&amp;year=2026` to all three image URLs. The image use
 
 | Request | Purpose | Authentication |
 | --- | --- | --- |
+| `POST /v1/workouts` | Parse a complete workout-text snapshot and replace annual totals plus recent five | Bearer `INGEST_TOKEN` |
+| `GET /v1/workouts?year=2026` | Read up to five recent runs for the year | None |
 | `POST /v1/stats` | Replace a complete yearly aggregate | Bearer `INGEST_TOKEN` |
 | `GET /v1/stats?year=2026` | Read public yearly JSON | None |
 | `GET /running.svg?year=2026&theme=dark` | Render the card | None |
 | `GET /health` | Return `{"status":"ok"}` | None |
 
-Send `{ "year": 2026, "distanceMeters": 125600, "durationSeconds": 48600 }`. These are fictional example values, never seeded into production. GET returns `{ "year": 2026, "distanceKm": 125.6, "durationSeconds": 48600 }`. Missing data returns HTTP 404 with `STATS_NOT_FOUND`; a registered zero returns HTTP 200 with zeros. Unknown fields, unknown or repeated query parameters, non-finite numbers, negative values, unsupported methods, and oversized bodies are rejected. See [the complete public contract](docs/api.md).
+The recommended upload is `{ "workoutsText": "Workout Type: Running\nDate: ...\nDuration: ...\nDistance: ..." }`, with each record beginning on a new `Workout Type:` line. Supply complete Running history from one source. The server selects the current Tokyo year by default. See [the phone guide](docs/ios-text-upload.md).
+
+The original aggregate-only endpoint remains supported. Send `{ "year": 2026, "distanceMeters": 125600, "durationSeconds": 48600 }`. These are fictional example values, never seeded into production. GET returns `{ "year": 2026, "distanceKm": 125.6, "durationSeconds": 48600 }`. Missing data returns HTTP 404 with `STATS_NOT_FOUND`; a registered zero returns HTTP 200 with zeros. Unknown fields, unknown or repeated query parameters, non-finite numbers, negative values, unsupported methods, and oversized bodies are rejected. See [the complete public contract](docs/api.md).
 
 ## iPhone setup
 
-Follow the [Japanese action-by-action guide](docs/ios-shortcuts.md). Change the existing **Stair Climbing** condition to **Running**. Sum all matching workouts from a single verified source with Start Date inside the Tokyo year. Convert measurements to metres and seconds before building a numeric JSON dictionary. Store the token with Actions Keychain and run the shortcut manually once before adding a daily 22:00 automation.
+Follow the [Japanese text-upload guide](docs/ios-text-upload.md). Disable the 15-item query limit and replace manual **Choose from List** with **Repeat with Each**. Build a four-line text for each Running workout, combine the repeat results with newlines, and set that text as the JSON body field `workoutsText`. No iPhone year-window calculation or summation is needed. The API calculates the requested Tokyo year's totals and sorts its latest five runs. Store the token with Actions Keychain and run manually before adding a daily 22:00 automation.
 
-The iPhone workflow has not been executed on the user's device by this project. HealthKit access while locked and unattended shortcut execution are not guaranteed. If a query returns zero workouts, automatic upload stops because HealthKit can conceal denied read access as an empty result. A genuine zero year can be sent after a manual permission and filter check.
+The [original on-device aggregation guide](docs/ios-shortcuts.md) remains available for `POST /v1/stats`, including manually confirmed zero years. That endpoint replaces the whole value with an aggregate and clears any recent-run details.
+
+The iPhone workflow has not been executed on the user's device by this project. HealthKit access while locked and unattended shortcut execution are not guaranteed. Empty uploads and snapshots without Running records in the target year are rejected because HealthKit can conceal denied read access as an empty result. A genuine zero year can be sent after a manual permission and filter check.
 
 ## Security and privacy
 
-Only `{year, distanceMeters, durationSeconds}` is stored at `running:year:Y`. Re-sending replaces the value, without addition. No source records, GPS, workout IDs, routes, heart rate, calories, identity, or per-workout timestamps are sent or stored.
+At `running:year:Y`, the Worker stores `{year, distanceMeters, durationSeconds}` and, for text uploads, up to five recent runs with date, distance, and duration. This reflects the owner’s explicit choice to publish those recent runs. Re-sending replaces the value, without addition. Complete workout history is processed only within the upload request. The original text, older individual workouts, exact start times, IDs, GPS, heart rate, calories, and speed are not persisted. Omit unneeded metrics from the phone text. Legacy metric lines are accepted but discarded.
 
-Annual totals and their changes are public, including through GitHub's image proxy. A single deployment represents one person's totals. There is no account system. Possession of the ingestion token grants overwrite access to every accepted year. Rotate it if exposed. Cloudflare still processes normal network metadata; this is not anonymous hosting.
+Annual totals, recent dates/distances/durations, and their changes are public, including through GitHub's image proxy. A single deployment represents one person's totals. There is no account system. Possession of the ingestion token grants overwrite access to every accepted year. Rotate it if exposed. Cloudflare still processes normal network metadata; this is not anonymous hosting.
 
-The Worker uses strict Zod boundary validation, a 1024-byte streamed body limit, Hono's timing-safe Bearer comparison, generic errors, and Hono HTML escaping for SVG text. Secrets belong in Workers Secrets, not configuration. `.secrets`, `.dev.vars`, local storage, logs, and test artifacts are ignored. Worker application observability is disabled to avoid request logging. The code logs neither body nor token.
+The Worker uses strict Zod boundary validation, streamed body limits of 1024 bytes for aggregate uploads and 1MiB for workout-text uploads, Hono's timing-safe Bearer comparison, generic errors, and Hono HTML escaping for SVG text. Secrets belong in Workers Secrets, not configuration. `.secrets`, `.dev.vars`, local storage, logs, and test artifacts are ignored. Worker application observability is disabled to avoid request logging. The code logs neither body nor token.
 
 ## Limits and caching
 
 - Workers KV is eventually consistent. Both values and missing lookups can remain stale for **60 seconds or more** across locations. A successful POST means KV accepted the write, not that every reader sees it yet. See [Cloudflare's consistency description](https://developers.cloudflare.com/kv/concepts/how-kv-works/).
 - SVG sends `Cache-Control: no-cache, max-age=0, must-revalidate`, following [GitHub's advice for changing images](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-anonymized-urls). Camo can still delay README refresh. This project promises no refresh deadline. Open the [direct SVG](https://running-readme-api.amtt.workers.dev/running.svg) or [JSON](https://running-readme-api.amtt.workers.dev/v1/stats) to distinguish storage delay from GitHub caching. The linked troubleshooting guide explains infrequent Camo purging. No cache-purge cron or daily commit is needed.
-- The card rounds kilometres to one decimal and floors duration to complete minutes. JSON retains metres divided by 1000 and the submitted seconds.
+- Annual card totals round kilometres to one decimal and floor duration to complete minutes. Recent rows show kilometres to two decimals and duration as H:MM:SS, flooring fractional seconds. JSON retains metres divided by 1000 and parsed seconds.
 - Start Date assigns a whole workout to a year. Workouts crossing midnight on New Year are not split. A run synced after 22:00 appears on the next successful sync.
+- A successful upload does not prove all Health records were included. A 15-record limit or manual selection can overwrite a complete annual value with a partial one. Upload the full snapshot, never chunks.
+- Text dates use `YYYY/MM/DD HH:mm[:ss]` and are interpreted as Asia/Tokyo. Numeric text supports correctly grouped commas and up to six decimal places. Unsupported formats are rejected rather than guessed.
 - One iPhone should send one annual snapshot at a time. Concurrent snapshots are last-write-wins. Retry a failed complete snapshot manually; there is no server job or automatic retry queue.
-- De-duplication requires choosing one source on the iPhone. Different IDs from different apps can represent the same run. The Worker cannot deduplicate annual totals.
+- De-duplication requires choosing one source on the iPhone. Different IDs from different apps can represent the same run. The text parser rejects repeated IDs or equivalent start-date/distance/duration fingerprints. Different values can still represent the same exercise; the server cannot identify these automatically.
 - Shortcuts time-of-day automations follow device time. Keep the phone in the Tokyo time zone for 22:00 JST. Health authorization, locked-device protection, device shutdown, connectivity, and iOS execution restrictions can prevent a run.
 
 ## Development
@@ -129,7 +137,7 @@ npm run dev
 
 Tests run in local workerd with local KV. CI runs checks and a dry-run build, and has no production token or deploy job. `npm run smoke -- URL` performs read-only and rejected-auth requests, with zero authenticated writes. Optional [browser checks and screenshots](docs/verification.md) use Playwright without adding it to runtime dependencies.
 
-Source is deliberately small. `src/index.ts` owns HTTP validation and KV. `src/svg.ts` renders a pure card. `test/api.test.ts` exercises the endpoints. `examples/year-window.js` is the tested Tokyo date expression used by the shortcut.
+Source is deliberately small. `src/index.ts` owns HTTP validation and KV. `src/workouts.ts` parses text, normalizes units, and chooses recent runs without retaining the original export. `src/svg.ts` renders a pure card. `test/api.test.ts` exercises the endpoints. `examples/year-window.js` is the tested Tokyo date expression used by the shortcut.
 
 ## License
 

@@ -14,13 +14,14 @@ async function capture(name, theme, width, year) {
   const result = await page.evaluate(() => {
     const svg = document.querySelector('svg');
     const text = [...document.querySelectorAll('svg text')];
+    const cardBounds = svg?.getBoundingClientRect();
     return {
       validXML: !document.querySelector('parsererror'),
       svg: !!svg,
       overflow: document.documentElement.scrollWidth > window.innerWidth,
       textWithinViewBox: text.every((element) => {
-        const box = element.getBBox();
-        return box.x >= 0 && box.x + box.width <= 420 && box.y >= 0 && box.y + box.height <= 124;
+        const box = element.getBoundingClientRect();
+        return box.left >= cardBounds.left && box.right <= cardBounds.right && box.top >= cardBounds.top && box.bottom <= cardBounds.bottom;
       }),
       text: svg?.textContent,
     };
@@ -45,6 +46,13 @@ try {
         await capture(`local-${name}-${theme}`, theme, 420);
         await capture(`local-${name}-${theme}-mobile`, theme, 320);
       }
+    }
+    const blocks = Array.from({ length: 5 }, (_, index) => `Workout Type: Running\nDate: ${year}/01/0${index + 1} 06:00\nDuration: 6000000 s\nDistance: ${index === 0 ? 96000000 : 1000000} m`);
+    const recentUpload = await fetch(`${origin}/v1/workouts`, { method: 'POST', headers: { Authorization: `Bearer ${devToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ workoutsText: blocks.join('\n\n') }) });
+    assert.equal(recentUpload.status, 200);
+    for (const theme of ['light', 'dark']) {
+      await capture(`local-recent-${theme}`, theme, 420);
+      await capture(`local-recent-${theme}-mobile`, theme, 320);
     }
   } else {
     for (const theme of ['light', 'dark']) {

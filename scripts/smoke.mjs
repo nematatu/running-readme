@@ -25,12 +25,23 @@ for (const query of ['', '?theme=light', '?theme=dark']) {
   assert(!/<script|foreignObject|onload=/i.test(xml));
   if (stats.status === 404) assert.match(xml, /Not synced/);
 }
-for (const authorization of [null, 'Bearer invalid-token']) {
-  const rejected = await fetch(`${origin}/v1/stats`, {
-    method: 'POST', headers: authorization ? { Authorization: authorization } : {},
-  });
-  assert.equal(rejected.status, 401);
-  assert.equal((await rejected.json()).error.code, 'UNAUTHORIZED');
+const workouts = await fetch(`${origin}/v1/workouts`);
+assert([200, 404].includes(workouts.status));
+const recent = await workouts.json();
+if (workouts.status === 404) assert.equal(recent.error.code, 'STATS_NOT_FOUND');
+else {
+  assert.deepEqual(Object.keys(recent).sort(), ['workouts', 'year']);
+  assert(recent.workouts === null || (Array.isArray(recent.workouts) && recent.workouts.length <= 5));
+  for (const run of recent.workouts || []) assert.deepEqual(Object.keys(run).sort(), ['date', 'distanceKm', 'durationSeconds']);
 }
-assert.equal((await fetch(`${origin}/v1/stats`, { method: 'DELETE' })).status, 405);
-console.log(JSON.stringify({ origin, health: 'ok', stats: stats.status, svg: '3 variants ok', protected: true, productionWrites: 0 }, null, 2));
+for (const path of ['/v1/stats', '/v1/workouts']) {
+  for (const authorization of [null, 'Bearer invalid-token']) {
+    const rejected = await fetch(`${origin}${path}`, {
+      method: 'POST', headers: authorization ? { Authorization: authorization } : {},
+    });
+    assert.equal(rejected.status, 401);
+    assert.equal((await rejected.json()).error.code, 'UNAUTHORIZED');
+  }
+  assert.equal((await fetch(`${origin}${path}`, { method: 'DELETE' })).status, 405);
+}
+console.log(JSON.stringify({ origin, health: 'ok', stats: stats.status, recentWorkouts: workouts.status, svg: '3 variants ok', protected: true, productionWrites: 0 }, null, 2));

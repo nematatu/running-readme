@@ -50,7 +50,7 @@ Registered response is HTTP 200 with exactly `{ "year": 2026, "distanceKm": 125.
 
 Queries are optional `year=YYYY` and `theme=light|dark`. The default theme is light. Unknown or duplicate parameters are rejected. Missing data returns HTTP 200 SVG with **Not synced** in both metric fields. It never displays missing data as zero.
 
-Headers include `Content-Type: image/svg+xml; charset=utf-8`, `Cache-Control: no-cache, max-age=0, must-revalidate`, `X-Content-Type-Options: nosniff`, and a restrictive Content Security Policy. The standalone SVG has a 420×124 viewBox, scales at narrow widths, and includes an accessible title and description. Public fields are Running, year, distance, and duration. Distance rounds to one decimal kilometre. Duration floors to full minutes.
+Headers include `Content-Type: image/svg+xml; charset=utf-8`, `Cache-Control: no-cache, max-age=0, must-revalidate`, `X-Content-Type-Options: nosniff`, and a restrictive Content Security Policy. The standalone SVG has a 420px-wide viewBox, scales at narrow widths, and includes an accessible title and description. Height is 124px without recent rows and grows when recent rows are available. Public fields are Running, year, aggregate distance and duration, plus the latest five dates, distances, and durations when supplied through the text endpoint. Distance rounds to one decimal kilometre. Duration floors to full minutes.
 
 ```sh
 curl 'https://running-readme-api.amtt.workers.dev/running.svg?year=2026&theme=dark'
@@ -73,8 +73,48 @@ Returns HTTP 200 and `{"status":"ok"}`, without storage content or credentials. 
 | 404 | `STATS_NOT_FOUND` | No aggregate for the selected year |
 | 404 | `NOT_FOUND` | Unknown endpoint |
 | 405 | `METHOD_NOT_ALLOWED` | Unsupported method, with `Allow` header |
-| 413 | `PAYLOAD_TOO_LARGE` | More than 1024 bytes |
+| 413 | `PAYLOAD_TOO_LARGE` | More than the endpoint body limit |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | JSON content type required |
 | 503 | `SERVICE_UNAVAILABLE` | Missing server Secret, invalid stored value, or internal/storage failure |
 
 Only GET is allowed on `/health` and `/running.svg`. Only GET and POST are allowed on `/v1/stats`. HEAD and OPTIONS are deliberately rejected. Public reads need no token. POST authenticates before reading the body, so an unauthenticated oversized request receives an authentication error first. Do not retry in a tight loop; KV has per-key write limits. Re-send a complete snapshot after resolving a failure.
+
+## POST /v1/workouts
+
+Recommended for an iPhone that already generates a workout memo. Same Bearer authentication and JSON content type as `/v1/stats`. The actual streamed body limit is **1,048,576 bytes (1MiB)**, independently of Content-Length. No query parameters are accepted.
+
+```json
+{
+  "workoutsText": "Workout Type: Running\nDate: 2026/01/15 07:30\nDuration: 900秒\nDistance: 2,500 m"
+}
+```
+
+This is a fictional example, not a production upload. `workoutsText` is a nonempty string. Optional numeric `year` uses the existing bounds; omitting it chooses the current Tokyo year. Unknown body properties are rejected. Supply the complete snapshot, not a newly added run or a selected subset. A partial snapshot replaces the complete annual value; the API cannot detect omitted records. Disable iPhone query limits and manual selection.
+
+Each block begins at a new `Workout Type:` line. Labels are case-sensitive. Blank lines between records are optional. Up to 10,000 blocks are accepted, subject to the byte limit.
+
+| Label | Value |
+| --- | --- |
+| `Workout Type` | `Running` is aggregated; other types are skipped |
+| `Date` | `YYYY/MM/DD HH:mm` or `YYYY/MM/DD HH:mm:ss`, always interpreted as Asia/Tokyo; real, non-future calendar date required |
+| `Duration` | Nonnegative decimal with unit `秒`, `s`, `sec`, `min`, `分`, `h`, or `時間`; optional parenthesized human-readable suffix is ignored |
+| `Distance` | Nonnegative decimal followed by `m` or `km` |
+| `Identifier` | Optional private deduplication ID, not persisted |
+
+Commas must form groups of three digits. Decimal separator is `.` and up to six fractional digits are supported. Equivalent decimal units use exact integer-scaled keys for duplicate detection, avoiding binary floating-point discrepancies. Parsed values and annual totals are bounded by the existing aggregate policies. The annual sum is represented as a JSON number.
+
+Legacy `End date`, `Heart rate`, `Active calories`, and `Avg Speed` lines are accepted and discarded. Omit these on the phone. Duplicate labels, unknown labels, malformed Running entries, missing metrics, and repeated IDs or identical date/distance/duration fingerprints reject the whole upload before KV is written. The duplicate rule can also reject distinct records with identical values; inspect those on the phone rather than silently merging them. Different values from multiple sources can still represent the same exercise, so select one verified source.
+
+Running entries are assigned by their full Start Date in Tokyo. Only the selected year's totals and its latest five Running entries are retained. Other years in the same export are not updated. One KV put replaces the selected year's value. Stored fields are `year`, `distanceMeters`, `durationSeconds`, and `recentWorkouts`, an array of at most five `{date: "YYYY-MM-DD", distanceMeters, durationSeconds}` objects in descending Start Date order. Exact start times are used in memory for sorting and discarded before storage. IDs and original text are not retained. These five dates, distances, and durations are public by the owner's choice.
+
+HTTP 200 returns `{"ok":true,"year":2026,"distanceMeters":2500,"durationSeconds":900,"workoutCount":1,"recentWorkouts":[{"date":"2026-01-15","distanceMeters":2500,"durationSeconds":900}]}`. `workoutCount` counts target-year records in the uploaded input; it is not proof of full Health coverage. Repeating the same complete upload does not add to the total.
+
+Additional 400 codes are `INVALID_WORKOUT_TEXT`, `NO_RUNNING_DATA` (no target-year Running records), and `DUPLICATE_WORKOUT`. Empty or target-year-empty uploads never clear a saved year. A genuine empty year requires manually confirmed zero via `POST /v1/stats`. The original aggregate endpoint remains supported and clears recent-run details when it replaces the value.
+
+## GET /v1/workouts
+
+Public endpoint. Optional `year=YYYY` uses the same bounds and Tokyo default as `/v1/stats`. Unknown/repeated queries are rejected. Response headers include public GET CORS and no-store.
+
+HTTP 200 returns `{ "year": 2026, "workouts": [{ "date": "2026-01-15", "distanceKm": 2.5, "durationSeconds": 900 }] }` with up to five rows for that year. A legacy aggregate saved through `/v1/stats` has `workouts: null`, meaning recent details have not been uploaded. Missing annual data returns HTTP 404 with `STATS_NOT_FOUND`.
+
+SVG includes these same date/distance/duration rows beneath the aggregate when available, with dynamic height and the original responsive width. Annual JSON `/v1/stats` retains its original three-field response for compatibility. Both GET and POST are allowed on `/v1/workouts`; HEAD and OPTIONS are rejected. KV/Camo consistency limits remain unchanged.
