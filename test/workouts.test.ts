@@ -81,14 +81,43 @@ describe('workout memo upload', () => {
     expect((await env.RUNNING_STATS.list()).keys).toHaveLength(0);
   });
   it.each([
-    `${block()}\n\n${block()}`,
+    { text: `${block()}\n\n${block()}`, distanceMeters: 2500, durationSeconds: 900 },
+    { text: `${block()}\nIdentifier: same-id\n\n${block()}\nIdentifier: same-id`, distanceMeters: 2500, durationSeconds: 900 },
+    { text: `${block()}\nIdentifier: first-id\n\n${block()}\nIdentifier: second-id`, distanceMeters: 2500, durationSeconds: 900 },
+    { text: `${block(undefined, '1.001 km', '1.5 min')}\n\n${block(undefined, '1,001 m', '90 s')}`, distanceMeters: 1001, durationSeconds: 90 },
+  ])('counts identical records once, including equivalent units ($distanceMeters m)', async ({ text, distanceMeters, durationSeconds }) => {
+    const response = await upload({ workoutsText: text });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, year, distanceMeters, durationSeconds, workoutCount: 1,
+      recentWorkouts: [{ date: `${year}-01-15`, distanceMeters, durationSeconds }] });
+    expect(await env.RUNNING_STATS.get(`running:year:${year}`, 'json')).toEqual({ year, distanceMeters, durationSeconds,
+      recentWorkouts: [{ date: `${year}-01-15`, distanceMeters, durationSeconds }] });
+  });
+  it.each([
     `${block()}\nIdentifier: same-id\n\n${block(`${year}/01/16 07:30`)}\nIdentifier: same-id`,
-    `${block(undefined, '1.001 km', '1.5 min')}\n\n${block(undefined, '1,001 m', '90 s')}`,
-  ])('rejects duplicate records including equivalent decimal units %s', async (workoutsText) => {
+    `${block()}\n\n${block()}\nIdentifier: same-id\n\n${block(`${year}/01/16 07:30`)}\nIdentifier: same-id`,
+  ])('rejects conflicting IDs without overwriting prior totals', async (workoutsText) => {
+    await upload({ workoutsText: block() });
+    const before = await env.RUNNING_STATS.get(`running:year:${year}`);
     const response = await upload({ workoutsText });
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: { code: 'DUPLICATE_WORKOUT', message: 'Duplicate workout records. Select one Health source and check the export.' } });
-    expect((await env.RUNNING_STATS.list()).keys).toHaveLength(0);
+    expect(await response.json()).toEqual({ error: { code: 'DUPLICATE_WORKOUT', message: 'Conflicting workout records share an Identifier. Check the export.' } });
+    expect(await env.RUNNING_STATS.get(`running:year:${year}`)).toBe(before);
+  });
+  it('keeps distinct starts and values, with recent rows unique after duplicate uploads', async () => {
+    const records = Array.from({ length: 6 }, (_, index) => block(`${year}/01/${String(index + 1).padStart(2, '0')} 07:30`));
+    records.push(block(`${year}/01/06 07:30:01`, '500 m', '120 s'));
+    const workoutsText = [...records, ...records].join('\n\n');
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await upload({ workoutsText });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ workoutCount: 7, distanceMeters: 15500, durationSeconds: 5520 });
+    }
+    const recent = await app.request('https://example.test/v1/workouts', undefined, env);
+    expect(await recent.json()).toEqual({ year, workouts: [
+      { date: `${year}-01-06`, distanceKm: 0.5, durationSeconds: 120 },
+      ...[6, 5, 4, 3].map(day => ({ date: `${year}-01-${String(day).padStart(2, '0')}`, distanceKm: 2.5, durationSeconds: 900 })),
+    ] });
   });
   it('can accept more than 15 records and skips non-running activity', async () => {
     const records = Array.from({ length: 16 }, (_, index) => block(`${year}/01/${String(index + 1).padStart(2, '0')} 07:30`));
