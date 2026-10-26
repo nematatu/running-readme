@@ -1,0 +1,39 @@
+#include 'actions/text'
+#include 'actions/web'
+
+#define name Upload Running README
+#define color green
+#define inputs text
+#define outputs text
+#define noinput stopwith "全件のRunningテキストを入力してください。"
+
+// The workout exporter passes its complete text as Shortcut Input.
+action 'com.sindresorhus.Actions.KeychainGetIntent' getIngestToken(text key: 'key'): text
+
+const workoutsText = getText(ShortcutInput)
+if !workoutsText {
+    showNotification("Runningの入力がないため送信しません。", "Running README", false)
+    stop()
+}
+
+const token = getIngestToken("running-readme.ingest-token")
+if !token {
+    showNotification("Actions Keychainに更新トークンを設定してください。", "Running README", false)
+    stop()
+}
+
+const response = jsonRequest(
+    "https://running-readme-api.amtt.workers.dev/v1/workouts",
+    "POST",
+    {"workoutsText": "{workoutsText}"},
+    {"Authorization": "Bearer {token}", "Content-Type": "application/json"}
+)
+const result = getDictionary(response)
+const acceptedValue = getValue(result, "ok")
+const accepted = number(acceptedValue)
+if accepted != 1 {
+    showNotification("同期に失敗しました。APIの応答を確認してください。", "Running README", false)
+    stop()
+}
+showNotification("年間合計と直近5件を更新しました。", "Running README", false)
+output("{result}")

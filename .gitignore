@@ -9,3 +9,7 @@ artifacts/
 worker-configuration.d.ts
 .DS_Store
 *.log
+
+shortcuts/*.shortcut
+shortcuts/*.plist
+shortcuts/*_processed.cherri
