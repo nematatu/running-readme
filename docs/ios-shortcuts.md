@@ -11,8 +11,7 @@
 1. クリップボード履歴を保存するアプリを使用している場合は、この操作中は履歴保存を停止してください。Mac と iPhone を近くに置いてください。同じ Apple Account、Wi-Fi、Bluetooth、Handoff が必要です。[Apple のユニバーサルクリップボード手順](https://support.apple.com/en-us/102430)をご参照ください。
 2. Mac のターミナルで次を実行してください。ファイル内容は画面に表示されず、クリップボードへ入ります。
 
-   ```sh
-   pbcopy < /Users/nematatu/src/github.com/nematatu/running-readme/.secrets/ingest-token.txt
+
    ```
 
 3. iPhone の「ショートカット」で「+」を押し、`Set Running README Token` というショートカットを作成してください。
