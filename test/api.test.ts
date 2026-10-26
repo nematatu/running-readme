@@ -117,6 +117,11 @@ describe('SVG', () => {
     expect(svg).toContain('viewBox="0 0 420 124"');
     expect(svg).toContain(theme === 'dark' ? '#0d1117' : '#ffffff');
     expect(svg).toContain('role="img"');
+    expect(svg).toContain('year-to-date running');
+    expect(svg).toContain('ui-monospace');
+    expect(svg).toContain(theme === 'dark' ? '#58a6ff' : '#0969da');
+    expect(svg).toContain(theme === 'dark' ? '#161b22' : '#f6f8fa');
+    expect(svg).toContain('Recent runs unavailable');
     expect(svg).not.toMatch(/<script|foreignObject|href=|onload=/i);
   });
   it('shows Not synced for missing data, literal zero for registered zero', async () => {
@@ -127,6 +132,35 @@ describe('SVG', () => {
     const zero = await (await request('/running.svg')).text();
     expect(zero).toContain('0.0 km');
     expect(zero).toContain('0h 0m');
+  });
+  it('renders numbered recent rows, distance comparisons and the displayed distance total', async () => {
+    await env.RUNNING_STATS.put(`running:year:${year}`, JSON.stringify({ ...sample, recentWorkouts: [
+      { date: `${year}-01-16`, distanceMeters: 2500, durationSeconds: 900, averageSpeedKmh: 10 },
+      { date: `${year}-01-15`, distanceMeters: 500, durationSeconds: 120, averageSpeedKmh: 15 },
+    ] }));
+    const svg = await (await request('/running.svg')).text();
+    expect(svg).toContain('viewBox="0 0 420 208"');
+    expect(svg).toContain(`${year}-01-16`);
+    expect(svg).toContain('0:15:00');
+    expect(svg).toContain('0:02:00');
+    expect(svg).toContain('Recent total');
+    expect(svg).toContain('3.00 km');
+    expect(svg).toContain('width="12" height="6"');
+    expect(svg).toContain('Bars compare distances with the longest displayed run, not a goal.');
+    expect(svg).toContain('aria-hidden="true">1</text>');
+    expect(svg).toContain('aria-hidden="true">2</text>');
+    expect(svg).not.toContain('averageSpeed');
+    expect(svg).not.toMatch(/<script|foreignObject|href=|onload=/i);
+  });
+  it('renders registered zero-distance recent rows without invalid bar geometry', async () => {
+    await env.RUNNING_STATS.put(`running:year:${year}`, JSON.stringify({ year, distanceMeters: 0, durationSeconds: 0, recentWorkouts: [
+      { date: `${year}-01-16`, distanceMeters: 0, durationSeconds: 0 },
+    ] }));
+    const svg = await (await request('/running.svg?theme=dark')).text();
+    expect(svg).toContain('viewBox="0 0 420 184"');
+    expect(svg).toContain('0.00 km');
+    expect(svg).toContain('width="0" height="6"');
+    expect(svg).not.toMatch(/NaN|Infinity|Not synced/);
   });
   it.each(['?theme=%22%3E%3Cscript%3E', '?year=%3Csvg%3E', '?theme=dark&theme=light', '?label=%3Cscript%3E'])('rejects XML injection query %s', async (query) => {
     const response = await request(`/running.svg${query}`);
