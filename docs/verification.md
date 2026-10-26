@@ -82,3 +82,13 @@ Two independent design/code passes reviewed the JSON text approach, shared authe
 The API cannot verify that the iPhone supplied all records. A limited query or manual selection can still replace a complete annual total with an incomplete one. The new phone guide explicitly requires Limit off, Repeat with Each, a single source, and no chunked uploads. iPhone execution, locked-device automation, and refresh delay after a real production upload remain unverified.
 
 Production deployment version for the text/recent-five update is `a7b35879-db08-4065-8515-dd8a25296eec`. The updated production smoke check succeeded for both public JSON endpoints, all three SVG URLs, and missing/wrong-token protection on both POST routes. Both JSON endpoints returned the expected unregistered 404 at verification time. The remote KV list remained empty. Four production browser captures of this actual unregistered state passed in `artifacts/text-upload-production/results.json`; no authenticated production test write was made. Local synthetic recent-five screenshots are not production data.
+
+## Duplicate workout synchronization fix
+
+The owner reported `Duplicate workout records` from the iPhone. The parser previously rejected an entire snapshot when two Running records had an identical normalized start/distance/duration fingerprint. Four local regression cases reproduced HTTP 400 where the new contract requires HTTP 200.
+
+The parser now counts identical fingerprints once, including equivalent units and different or absent IDs. It checks Identifier conflicts before skipping a duplicate, so an alias cannot hide later conflicting values. Conflicting IDs still reject the upload before KV is written and preserve prior totals. Distinct starts remain separate; recent five contains deduplicated rows. No raw history or ID is persisted.
+
+After the fix, both TypeScript checks, 101 local Workers tests, and two Tokyo year-window assertions passed. This includes snapshot resends, duplicate recent rows, and conflicting IDs preserving prior data. These synthetic tests used local KV. The user's actual successful iPhone resynchronization remains unverified until they rerun it.
+
+The fix was deployed to `https://running-readme-api.amtt.workers.dev` as version `5bb7ad0a-a705-4267-9a24-9fa792503515`, using the existing KV binding. No synthetic records were sent to production.

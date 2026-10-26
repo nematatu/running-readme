@@ -113,7 +113,7 @@ app.post('/v1/workouts', bodyLimit({
     const messages = {
       INVALID_WORKOUT_TEXT: 'Invalid workout text. Check labels, dates, and units.',
       NO_RUNNING_DATA: 'No running records for the selected year. Existing statistics were not changed.',
-      DUPLICATE_WORKOUT: 'Duplicate workout records. Select one Health source and check the export.',
+      DUPLICATE_WORKOUT: 'Conflicting workout records share an Identifier. Check the export.',
     };
     return c.json(errorBody(error.code, messages[error.code]), 400);
   }

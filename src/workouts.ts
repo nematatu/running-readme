@@ -55,6 +55,7 @@ export function aggregateWorkoutText(text: string, year: number, now = new Date(
   let durationSeconds = 0;
   let workoutCount = 0;
   const seen = new Set<string>();
+  const identifiers = new Map<string, string>();
   const runs: (RecentWorkout & { timestamp: number })[] = [];
   for (const block of blocks) {
     const fields = new Map<string, string>();
@@ -71,9 +72,13 @@ export function aggregateWorkoutText(text: string, year: number, now = new Date(
     if (distance.value > 100_000_000 || duration.value > 31_622_400) throw new WorkoutTextError('INVALID_WORKOUT_TEXT');
     const fingerprint = `${start.timestamp}:${distance.key}:${duration.key}`;
     const identifier = fields.get('Identifier');
-    if (seen.has(fingerprint) || (identifier && seen.has(`id:${identifier}`))) throw new WorkoutTextError('DUPLICATE_WORKOUT');
+    if (identifier) {
+      const previous = identifiers.get(identifier);
+      if (previous !== undefined && previous !== fingerprint) throw new WorkoutTextError('DUPLICATE_WORKOUT');
+      identifiers.set(identifier, fingerprint);
+    }
+    if (seen.has(fingerprint)) continue;
     seen.add(fingerprint);
-    if (identifier) seen.add(`id:${identifier}`);
     if (start.year !== year) continue;
     distanceMeters += distance.value;
     durationSeconds += duration.value;

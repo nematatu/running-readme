@@ -124,7 +124,7 @@ The Worker uses strict Zod boundary validation, streamed body limits of 1024 byt
 - A successful upload does not prove all Health records were included. A 15-record limit or manual selection can overwrite a complete annual value with a partial one. Upload the full snapshot, never chunks.
 - Text dates use `YYYY/MM/DD HH:mm[:ss]` and are interpreted as Asia/Tokyo. Numeric text supports correctly grouped commas and up to six decimal places. Unsupported formats are rejected rather than guessed.
 - One iPhone should send one annual snapshot at a time. Concurrent snapshots are last-write-wins. Retry a failed complete snapshot manually; there is no server job or automatic retry queue.
-- De-duplication requires choosing one source on the iPhone. Different IDs from different apps can represent the same run. The text parser rejects repeated IDs or equivalent start-date/distance/duration fingerprints. Different values can still represent the same exercise; the server cannot identify these automatically.
+- The text parser counts identical normalized start-date/distance/duration fingerprints once, including equivalent units and different IDs. A repeated Identifier with conflicting values rejects the upload. Distinct real runs with identical fingerprints are indistinguishable and are merged. Different values from multiple sources can still represent the same exercise; select one verified source when these occur.
 - Shortcuts time-of-day automations follow device time. Keep the phone in the Tokyo time zone for 22:00 JST. Health authorization, locked-device protection, device shutdown, connectivity, and iOS execution restrictions can prevent a run.
 
 ## Development
