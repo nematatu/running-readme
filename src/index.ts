@@ -20,19 +20,30 @@ export const annualStats = z.strictObject({
   return durationSeconds <= secondsInYear;
 });
 export type AnnualStats = z.infer<typeof annualStats>;
-const storedStats = annualStats.safeExtend({ recentWorkouts: z.array(recentWorkout).max(5).optional() })
-  .refine((stats) => stats.recentWorkouts?.every((workout) => workout.date.startsWith(`${stats.year}-`)) ?? true);
+const storedStats = annualStats
+  .safeExtend({ recentWorkouts: z.array(recentWorkout).max(5).optional() })
+  .refine((stats) => stats.recentWorkouts?.every(
+    (workout) => workout.date.startsWith(`${stats.year}-`),
+  ) ?? true);
 
 const readQuery = z.strictObject({
   year: z.string().regex(/^\d{4}$/).transform(Number).pipe(yearSchema).optional(),
 });
-const textUpload = z.strictObject({ workoutsText: z.string().min(1).max(1_048_576), year: yearSchema.optional() });
+const textUpload = z.strictObject({
+  workoutsText: z.string().min(1).max(1_048_576),
+  year: yearSchema.optional(),
+});
 const svgQuery = readQuery.extend({ theme: z.enum(['light', 'dark']).default('light') });
 const app = new Hono<{ Bindings: Env }>();
 const errorBody = (code: string, message: string) => ({ error: { code, message } });
 
 app.use('*', async (c, next) => {
-  const allowed = new Map([['/health', ['GET']], ['/v1/stats', ['GET', 'POST']], ['/v1/workouts', ['GET', 'POST']], ['/running.svg', ['GET']]]).get(c.req.path);
+  const allowed = new Map([
+    ['/health', ['GET']],
+    ['/v1/stats', ['GET', 'POST']],
+    ['/v1/workouts', ['GET', 'POST']],
+    ['/running.svg', ['GET']],
+  ]).get(c.req.path);
   if (allowed && !allowed.includes(c.req.method)) {
     c.header('Allow', allowed.join(', '));
     c.res = c.json(errorBody('METHOD_NOT_ALLOWED', 'Method not allowed.'), 405);
@@ -103,7 +114,10 @@ app.post('/v1/workouts', bodyLimit({
   const input = textUpload.safeParse(body);
   if (!input.success) return c.json(errorBody('INVALID_WORKOUT_TEXT', 'Invalid workout text upload.'), 400);
   try {
-    const { workoutCount, ...totals } = aggregateWorkoutText(input.data.workoutsText, input.data.year ?? tokyoYear());
+    const { workoutCount, ...totals } = aggregateWorkoutText(
+      input.data.workoutsText,
+      input.data.year ?? tokyoYear(),
+    );
     const result = storedStats.safeParse(totals);
     if (!result.success) return c.json(errorBody('INVALID_STATS', 'Invalid annual statistics.'), 400);
     await c.env.RUNNING_STATS.put(`running:year:${result.data.year}`, JSON.stringify(result.data));
@@ -146,8 +160,15 @@ app.get('/v1/workouts', async (c) => {
   if (stats.year !== year) throw new Error('Stored year mismatch');
   return c.json({
     year,
-    recentTotalDistanceKm: stats.recentWorkouts ? stats.recentWorkouts.reduce((sum, workout) => sum + workout.distanceMeters, 0) / 1000 : null,
-    workouts: stats.recentWorkouts?.map(({ date, distanceMeters, durationSeconds, averageSpeedKmh }) => ({ date, distanceKm: distanceMeters / 1000, durationSeconds, averageSpeedKmh })) ?? null,
+    recentTotalDistanceKm: stats.recentWorkouts
+      ? stats.recentWorkouts.reduce((sum, workout) => sum + workout.distanceMeters, 0) / 1000
+      : null,
+    workouts: stats.recentWorkouts?.map(({ date, distanceMeters, durationSeconds, averageSpeedKmh }) => ({
+      date,
+      distanceKm: distanceMeters / 1000,
+      durationSeconds,
+      averageSpeedKmh,
+    })) ?? null,
   });
 });
 
