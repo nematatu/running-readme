@@ -1,9 +1,7 @@
-# Running card design
+# Running display design
 
-The card displays the selected year, annual distance and duration, up to five recent runs, and the distance total for those rows. Recent rows contain the full date, distance in kilometres to two decimals, and duration as H:MM:SS.
+The owner supplied [Hadge](https://github.com/ashtom/hadge) as the visual reference. Its official README screenshot and the linked [statistics generator](https://gist.github.com/ashtom/1cd9602b122082827b38eb79d605ca1a) inform the compact monospace rows, monochrome horizontal distance bars, and total line. The SVG uses these content conventions without reproducing GitHub pinned-Gist borders, icons, blue filenames, code panels, or line numbers. The actual pinned Gist is separate and unchanged.
 
-The owner requested removal of the pinned-Gist preview only. The card keeps the statistics and table and removes the code icon, blue Gist-style heading, inset code panel, line numbers, and distance bars. The actual pinned Gist is separate and remains unchanged.
+The display includes the selected year, annual distance and duration, up to five recent runs, and the distance total for those rows. Recent rows contain the full date, distance in kilometres to two decimals, a distance bar, and duration as H:MM:SS. Each bar compares its row to the longest displayed run. It does not show progress toward a goal. A zero-distance row has no filled bar.
 
-The original simple statistics-card structure was informed by [GitHub Readme Stats](https://github.com/anuraghazra/github-readme-stats). The adopted structure has a heading above labeled statistics in a compact bordered card. Its public README and local reference captures were inspected. The earlier [Hadge](https://github.com/ashtom/hadge) preview styling is no longer used.
-
-The SVG has an intrinsic width of 420 and scales through its viewBox. It uses system fonts, light and dark palettes, and no external assets. Missing annual data displays **Not synced**. Registered zero values remain zero. Average Speed stays available through JSON and KV.
+The SVG has an intrinsic width of 420 and scales through its viewBox. It uses a system monospace font and a flat background for each theme, without an outer card border or inset code panel. No external assets are loaded. Missing annual data displays **Not synced**. Registered zero values remain zero. Average Speed stays available through JSON and KV.

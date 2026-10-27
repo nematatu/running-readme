@@ -119,3 +119,10 @@ The new renderer was deployed as Worker version `47f2612d-1b22-40b5-a3a1-3ad74ef
 The renderer now keeps annual totals, recent date/distance/duration rows, and their distance total, while removing the Gist-style heading, icon, inset code panel, line numbers, and bars. The profile README image was restored after its mistaken removal. The actual pinned Gist and Hadge workflow were not changed.
 
 Type checks, 126 Workers tests, and two Tokyo boundary checks passed. The rendering script checked 17 local SVG views and four read-only production views. GitHub profile and repository images rendered in both themes through Camo with HTTP 200 and the updated 420×340 five-row layout. Screenshots are in ignored `artifacts/plain-local/`, `artifacts/plain-production/`, and `artifacts/github/`. Worker deployment `0793df50-74c9-4e99-80f4-43df6722f746` serves this layout. No production KV writes were made for verification.
+
+
+## Hadge content styling without pinned-Gist chrome
+
+The owner clarified that the display should keep Hadge's content styling. The renderer now uses monospace rows and monochrome distance bars with a recent-distance total. Annual distance and duration remain above the list. The SVG does not include an outer border, inset code panel, blue filename, code icon, or line numbers. The API, stored data, shortcut, and actual pinned Gist remain unchanged.
+
+Type checks, 126 Workers tests, two Tokyo boundary assertions, and 17 local rendering cases passed. Four read-only production views passed at 420px and 320px in both themes. GitHub profile and repository images returned HTTP 200 SVG in both themes and displayed the new 420×256 layout. Production deployment is `d30e5f98-e9ba-40b8-b98a-8c4d8cd66f4c`. Actual production screenshots are in ignored `artifacts/hadge-content-production/`; GitHub captures are in `artifacts/github/`. Local fixture screenshots are in `artifacts/hadge-content-local/` and contain synthetic test values only. No production KV writes were made.

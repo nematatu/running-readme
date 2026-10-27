@@ -118,7 +118,8 @@ describe('SVG', () => {
     expect(svg).toContain(theme === 'dark' ? '#0d1117' : '#ffffff');
     expect(svg).toContain('role="img"');
     expect(svg).toContain('>Running</text>');
-    expect(svg).not.toMatch(/year-to-date running|ui-monospace|aria-hidden|Bars compare/);
+    expect(svg).toContain('ui-monospace');
+    expect(svg).not.toMatch(/year-to-date running|rx=|stroke=|fill="#0969da"|fill="#58a6ff"/);
     expect(svg).not.toMatch(/<script|foreignObject|href=|onload=/i);
   });
   it('shows Not synced for missing data, literal zero for registered zero', async () => {
@@ -136,13 +137,16 @@ describe('SVG', () => {
       { date: `${year}-01-15`, distanceMeters: 500, durationSeconds: 120, averageSpeedKmh: 15 },
     ] }));
     const svg = await (await request('/running.svg')).text();
-    expect(svg).toContain('viewBox="0 0 420 268"');
+    expect(svg).toContain('viewBox="0 0 420 184"');
     expect(svg).toContain(`${year}-01-16`);
     expect(svg).toContain('0:15:00');
     expect(svg).toContain('0:02:00');
     expect(svg).toContain('Recent total');
     expect(svg).toContain('3.00 km');
-    expect(svg).not.toMatch(/year-to-date running|ui-monospace|aria-hidden|Bars compare/);
+    expect(svg).toContain('width="15.2" height="8"');
+    expect(svg).toContain('Bars compare distances with the longest displayed run, not a goal.');
+    expect(svg).toContain('ui-monospace');
+    expect(svg).not.toMatch(/year-to-date running|rx=|stroke=|fill="#0969da"|fill="#58a6ff"/);
     expect(svg).not.toContain('averageSpeed');
     expect(svg).not.toMatch(/<script|foreignObject|href=|onload=/i);
   });
@@ -151,8 +155,9 @@ describe('SVG', () => {
       { date: `${year}-01-16`, distanceMeters: 0, durationSeconds: 0 },
     ] }));
     const svg = await (await request('/running.svg?theme=dark')).text();
-    expect(svg).toContain('viewBox="0 0 420 244"');
+    expect(svg).toContain('viewBox="0 0 420 160"');
     expect(svg).toContain('0.00 km');
+    expect(svg).toContain('width="0" height="8"');
     expect(svg).not.toMatch(/NaN|Infinity|Not synced/);
   });
   it.each(['?theme=%22%3E%3Cscript%3E', '?year=%3Csvg%3E', '?theme=dark&theme=light', '?label=%3Cscript%3E'])('rejects XML injection query %s', async (query) => {
