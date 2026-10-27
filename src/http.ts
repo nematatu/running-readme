@@ -1,18 +1,19 @@
 import { bearerAuth } from 'hono/bearer-auth';
 import { bodyLimit } from 'hono/body-limit';
-import { createMiddleware } from 'hono/factory';
+import { createFactory } from 'hono/factory';
 import { validator } from 'hono/validator';
 import type { z } from 'zod';
 
-export type AppEnv = { Bindings: Env };
+type AppEnv = { Bindings: Env };
+export const factory = createFactory<AppEnv>();
 export const errorBody = (code: string, message: string) => ({ error: { code, message } });
 
-export const publicJson = createMiddleware<AppEnv>(async (c, next) => {
+export const publicJson = factory.createMiddleware(async (c, next) => {
   c.header('Access-Control-Allow-Origin', '*');
   await next();
 });
 
-export const authenticateIngest = createMiddleware<AppEnv>(async (c, next) => {
+export const authenticateIngest = factory.createMiddleware(async (c, next) => {
   if (!c.env.INGEST_TOKEN || c.env.INGEST_TOKEN.length < 32) {
     return c.json(errorBody('SERVICE_UNAVAILABLE', 'Service temporarily unavailable.'), 503);
   }
@@ -30,7 +31,7 @@ export function limitBody(maxSize: number) {
     maxSize,
     onError: (c) => c.json(errorBody('PAYLOAD_TOO_LARGE', `Body exceeds ${maxSize} bytes.`), 413),
   });
-  return createMiddleware<AppEnv>((c, next) => {
+  return factory.createMiddleware((c, next) => {
     // Force bodyLimit to count actual bytes instead of trusting Content-Length.
     c.req.raw = new Request(c.req.raw);
     c.req.raw.headers.delete('Content-Length');
@@ -38,7 +39,7 @@ export function limitBody(maxSize: number) {
   });
 }
 
-export const requireJson = createMiddleware<AppEnv>(async (c, next) => {
+export const requireJson = factory.createMiddleware(async (c, next) => {
   if (c.req.header('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     return c.json(errorBody('UNSUPPORTED_MEDIA_TYPE', 'Use application/json.'), 415);
   }
@@ -46,7 +47,7 @@ export const requireJson = createMiddleware<AppEnv>(async (c, next) => {
 });
 
 export function jsonInput<T extends object>(schema: z.ZodType<T>, invalid: ReturnType<typeof errorBody>) {
-  return createMiddleware<AppEnv, string, { out: { json: T } }>(async (c, next) => {
+  return factory.createMiddleware<{ out: { json: T } }>(async (c, next) => {
     let body: unknown;
     try {
       body = await c.req.json();

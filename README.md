@@ -31,7 +31,7 @@ HealthKit runs on the iPhone, never when someone views your README. The Worker n
 
 ## Requirements
 
-- Node.js 22 or later, npm, Git, and a Cloudflare account with Workers and KV access.
+- Node.js 22.13.0 or later, npm, Git, and a Cloudflare account with Workers and KV access.
 - An iPhone with Apple Health workouts, Shortcuts, and [Actions](https://sindresorhus.com/actions).
 - Permission for Actions to read workouts. On this user's device, Mi Fitness syncing and Actions Find Workout retrieval were already confirmed by the user. This repository does not implement wearable connectivity.
 

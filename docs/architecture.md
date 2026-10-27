@@ -2,6 +2,8 @@
 
 Start with [`src/index.ts`](../src/index.ts). Each route declares its HTTP policies, then reads typed input through `c.req.valid()`. The handler performs the operation named by the endpoint: read statistics, aggregate workouts, save a snapshot, or render SVG.
 
+The app and shared middleware use one `createFactory<AppEnv>()` in `http.ts`. The factory carries the generated Workers bindings into both, so middleware declarations do not repeat the environment type. Handlers stay inline in the routes for input type inference.
+
 | Module | Owns |
 | --- | --- |
 | `index.ts` | Routes, request schemas, and public responses |
@@ -18,6 +20,22 @@ Zod supplies the input and stored-data types. JSON and query validation each hap
 
 The structure follows [Hono's validation guide](https://hono.dev/docs/guides/validation) and [official examples](https://github.com/honojs/examples/tree/main/pages-stack). Query validation uses Hono's built-in `validator`, which passes repeated query parameters as arrays. Zod rejects those arrays without a second manual query check.
 
-The official [`@hono/zod-validator`](https://github.com/honojs/middleware/tree/main/packages/zod-validator) was also considered. It uses Hono's JSON parser, whose malformed-JSON response and Content-Type handling differ from this API's existing contract. A small shared JSON middleware preserves that contract, stores the validated result, and carries its inferred type to `c.req.valid('json')`. No dependency was added.
+The official [`@hono/zod-validator`](https://github.com/honojs/middleware/tree/main/packages/zod-validator) was also considered. It uses Hono's JSON parser, whose malformed-JSON response and Content-Type handling differ from this API's existing contract. A small shared JSON middleware preserves that contract, stores the validated result, and carries its inferred type to `c.req.valid('json')`. This adapter needs no additional runtime dependency.
 
 The method guard derives supported methods from Hono's registered routes. It preserves the API's existing rejection of `HEAD`; Hono's built-in method-not-allowed middleware includes `HEAD` for `GET` routes. Missing statistics remain a JSON 404 and an SVG **Not synced** response, explicitly handled by their routes.
+
+## Inspect and compare with Hono CLI
+
+The development dependency `@hono/cli` is pinned to `1.0.0-rc.8`, the version published under the official skill's `next` tag when installed. It supports this project's Hono 4 version. The application still uses Wrangler and its generated `Env` type.
+
+```sh
+npx hono routes
+npx hono request /health --runtime workerd
+mkdir -p artifacts/hono
+npx hono snapshot --runtime workerd > artifacts/hono/before.jsonl
+WRANGLER_LOG=error npx hono diff
+```
+
+`workerd` uses the full local Workers runtime and local bindings. These commands do not deploy or access production KV. `WRANGLER_LOG=error` prevents Wrangler's informational output from entering the JSONL that `hono diff` parses.
+
+To replay a snapshot, add explicit expectations to its POST lines and run `npx hono batch artifacts/hono/before.jsonl --runtime workerd --compact`. A protected POST without authentication must expect 401. Keep tokens out of command arguments and snapshots. Use `npm run check` for the full Workers test suite.

@@ -1,8 +1,7 @@
-import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import {
-  type AppEnv, authenticateIngest, errorBody, jsonInput, limitBody,
+  authenticateIngest, errorBody, factory, jsonInput, limitBody,
   publicJson, queryInput, requireJson,
 } from './http';
 import { annualStats, readYearStats, tokyoYear, writeYearStats, yearSchema } from './stats';
@@ -19,7 +18,7 @@ const textUpload = z.strictObject({
 });
 const noStats = errorBody('STATS_NOT_FOUND', 'No statistics registered for this year.');
 
-const app = new Hono<AppEnv>();
+const app = factory.createApp();
 
 app.use('*', async (c, next) => {
   const allowed = [...new Set(app.routes
