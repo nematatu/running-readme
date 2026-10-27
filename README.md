@@ -37,6 +37,8 @@ HealthKit runs on the iPhone, never when someone views your README. The Worker n
 
 Runtime dependencies are Hono and Zod. Development uses Wrangler, TypeScript, Vitest, and Cloudflare's current Workers Vitest plugin. Versions are pinned in `package-lock.json`.
 
+For development, start with the [code structure and library choices](docs/architecture.md). Routes use typed Hono middleware; statistics schemas and KV handling have one owner.
+
 ## Deploy your own instance
 
 ```sh

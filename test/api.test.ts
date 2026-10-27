@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import app, { annualStats, tokyoYear } from '../src/index';
+import app from '../src/index';
+import { annualStats, tokyoYear } from '../src/stats';
 
 const token = 'test-only-token-not-a-production-secret-12345';
 const year = tokyoYear();

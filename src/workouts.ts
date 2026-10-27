@@ -1,12 +1,4 @@
-import { z } from 'zod';
-
-export const recentWorkout = z.strictObject({
-  date: z.iso.date(),
-  distanceMeters: z.number().min(0).max(100_000_000),
-  durationSeconds: z.number().min(0).max(31_622_400),
-  averageSpeedKmh: z.number().min(0).max(1000).nullable().default(null),
-});
-export type RecentWorkout = z.infer<typeof recentWorkout>;
+import { annualStats, type RecentWorkout } from './stats';
 
 const numericValue = '(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.[0-9]{1,6})?';
 const distancePattern = new RegExp(`^(${numericValue})\\s*(m|km)$`, 'i');
@@ -18,7 +10,7 @@ const allowedLabels = new Set([
 ]);
 
 export class WorkoutTextError extends Error {
-  constructor(public readonly code: 'INVALID_WORKOUT_TEXT' | 'NO_RUNNING_DATA' | 'DUPLICATE_WORKOUT') {
+  constructor(public readonly code: 'INVALID_WORKOUT_TEXT' | 'NO_RUNNING_DATA' | 'DUPLICATE_WORKOUT' | 'INVALID_STATS') {
     super(code);
   }
 }
@@ -64,9 +56,6 @@ export function aggregateWorkoutText(text: string, year: number, now = new Date(
   if (!normalized.startsWith('Workout Type:')) throw new WorkoutTextError('INVALID_WORKOUT_TEXT');
   const blocks = normalized.split(/(?=^Workout Type:)/m).filter((block) => block.trim());
   if (blocks.length > 10_000) throw new WorkoutTextError('INVALID_WORKOUT_TEXT');
-  let distanceMeters = 0;
-  let durationSeconds = 0;
-  let workoutCount = 0;
   const seen = new Set<string>();
   const identifiers = new Map<string, string>();
   const runs: (RecentWorkout & { timestamp: number })[] = [];
@@ -108,9 +97,6 @@ export function aggregateWorkoutText(text: string, year: number, now = new Date(
     if (seen.has(fingerprint)) continue;
     seen.add(fingerprint);
     if (startTime.year !== year) continue;
-    distanceMeters += distance.value;
-    durationSeconds += duration.value;
-    workoutCount++;
     runs.push({
       date: new Date(startTime.timestamp + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
       distanceMeters: distance.value,
@@ -119,12 +105,20 @@ export function aggregateWorkoutText(text: string, year: number, now = new Date(
       timestamp: startTime.timestamp,
     });
   }
-  if (workoutCount === 0) throw new WorkoutTextError('NO_RUNNING_DATA');
+  if (runs.length === 0) throw new WorkoutTextError('NO_RUNNING_DATA');
+
+  const totals = annualStats.safeParse({
+    year,
+    distanceMeters: runs.reduce((sum, run) => sum + run.distanceMeters, 0),
+    durationSeconds: runs.reduce((sum, run) => sum + run.durationSeconds, 0),
+  });
+  if (!totals.success) throw new WorkoutTextError('INVALID_STATS');
+
   const recentWorkouts = runs
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, 5)
     .map(({ date, distanceMeters, durationSeconds, averageSpeedKmh }) => ({
       date, distanceMeters, durationSeconds, averageSpeedKmh,
     }));
-  return { year, distanceMeters, durationSeconds, workoutCount, recentWorkouts };
+  return { ...totals.data, workoutCount: runs.length, recentWorkouts };
 }

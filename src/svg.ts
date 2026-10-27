@@ -1,6 +1,5 @@
 import { html } from 'hono/html';
-import type { AnnualStats } from './index';
-import type { RecentWorkout } from './workouts';
+import type { AnnualStats, RecentWorkout } from './stats';
 
 export function renderCard({ year, stats, theme, recentWorkouts = [] }: {
   year: number;

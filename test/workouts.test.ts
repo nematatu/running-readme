@@ -1,7 +1,8 @@
 import { env } from 'cloudflare:workers';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import app from '../src/index';
-import { aggregateWorkoutText, recentWorkout } from '../src/workouts';
+import { aggregateWorkoutText } from '../src/workouts';
+import { recentWorkout } from '../src/stats';
 
 const token = 'test-only-token-not-a-production-secret-12345';
 const year = 2026;
