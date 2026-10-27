@@ -82,7 +82,7 @@ Copy this into a GitHub README. Omitting `year` follows the current year in **As
 
 For a fixed archive, add `&amp;year=2026` to all three image URLs. The image uses a responsive SVG viewBox and no external font, image, CSS, or script.
 
-The [card design](docs/design.md) follows the code-block appearance of [Hadge](https://github.com/ashtom/hadge): a blue heading, monospace rows, distance bars, and a recent-distance total. Bars compare each recent run with the longest displayed run; they are not a goal percentage.
+The [card](docs/design.md) displays annual totals, up to five recent runs, and their distance total. It does not reproduce a pinned Gist preview.
 
 ## API
 
